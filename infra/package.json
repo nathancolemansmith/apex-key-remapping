@@ -1,0 +1,27 @@
+{
+  "name": "@apex/infra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AWS CDK stacks: shared Cognito identity, and the .NET API on ECS Fargate.",
+  "bin": {
+    "infra": "bin/infra.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy --all",
+    "destroy": "cdk destroy --all",
+    "bootstrap": "cdk bootstrap"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.277.0",
+    "constructs": "10.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "aws-cdk": "2.1148.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.2"
+  }
+}

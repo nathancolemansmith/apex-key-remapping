@@ -1,0 +1,166 @@
+# Deploys the .NET API to ECS Fargate when its sources change on main.
+#
+# Authentication is OIDC: GitHub signs a short-lived token describing the
+# repository and branch, AWS trusts that issuer, and the role's trust policy
+# narrows it to this repo's main branch. There is no AWS key stored in the
+# repository. The role itself is created by infra/lib/github-deploy-stack.ts
+# and deployed once by hand — the pipeline cannot provision its own access.
+name: Deploy .NET API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # The API itself.
+      - "apps/api-dotnet/**"
+      # The stacks that describe how it is deployed.
+      - "infra/**"
+      # The contract and catalog it is built against: a key added to the
+      # catalog needs a redeploy to reach the running service.
+      - "packages/**"
+      - "global.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-dotnet.yml"
+  workflow_dispatch:
+
+# One deploy at a time. Two concurrent runs would fight over the same
+# CloudFormation stack, and the service is pinned to a single task writing one
+# SQLite file.
+concurrency:
+  group: deploy-dotnet
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required to request the OIDC token
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  verify:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The shared domain and the contract gate the deploy too. A catalog that
+      # disagrees with the brief, or a spec that disagrees with the catalog,
+      # should never reach a running service.
+      - name: Shared domain and contract
+        run: npm test
+
+      - name: .NET tests
+        run: npm run test:dotnet
+
+      # Layer 1 of the contract check: the API's own OpenAPI output must match
+      # the canonical document. Generated into obj/ by the build.
+      - name: Generated OpenAPI document matches the contract
+        run: |
+          dotnet build apps/api-dotnet/Apex.KeyMapping.Api/Apex.KeyMapping.Api.csproj
+          test -f apps/api-dotnet/Apex.KeyMapping.Api/obj/Apex.KeyMapping.Api.json \
+            || { echo "::error::no OpenAPI document was generated"; exit 1; }
+          node -e '
+            const fs = require("node:fs");
+            const generated = JSON.parse(fs.readFileSync(
+              "apps/api-dotnet/Apex.KeyMapping.Api/obj/Apex.KeyMapping.Api.json", "utf8"));
+            const canonical = require("yaml").parse(fs.readFileSync(
+              "packages/api-contract/openapi.yaml", "utf8"));
+
+            const operations = (doc) => Object.entries(doc.paths ?? {})
+              .flatMap(([route, item]) => Object.keys(item)
+                .filter((m) => ["get","put","post","delete","patch"].includes(m))
+                .map((m) => `${m.toUpperCase()} ${route}`))
+              .sort();
+
+            const mine = operations(generated);
+            const theirs = operations(canonical);
+            const missing = theirs.filter((o) => !mine.includes(o));
+            const extra = mine.filter((o) => !theirs.includes(o));
+
+            if (missing.length || extra.length) {
+              if (missing.length) console.error("::error::not implemented: " + missing.join(", "));
+              if (extra.length) console.error("::error::not in the contract: " + extra.join(", "));
+              process.exit(1);
+            }
+            console.log(`${mine.length} operations match the canonical contract`);
+          '
+
+  deploy:
+    name: Deploy to AWS
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-dotnet-${{ github.run_id }}
+
+      # Identity first: the API stack reads the user pool id from it, and a
+      # deploy that reversed this order would wire the API to nothing.
+      - name: Deploy
+        working-directory: infra
+        run: npx cdk deploy ApexIdentity ApexDotnetApi --require-approval never
+
+      - name: Report the live URL
+        working-directory: infra
+        run: |
+          url=$(aws cloudformation describe-stacks \
+            --stack-name ApexDotnetApi \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+            --output text)
+          echo "### Deployed :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: $url" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Health: $url/health" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test the deployment
+        run: |
+          url=$(aws cloudformation describe-stacks \
+            --stack-name ApexDotnetApi \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+            --output text)
+
+          # The ALB needs a moment to mark the new task healthy.
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$url/health" > /dev/null; then
+              echo "healthy after ${attempt} attempt(s)"
+
+              # Unauthenticated callers must be rejected. A 200 here would mean
+              # the deployment is serving data to anyone.
+              status=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/keyboards")
+              if [ "$status" != "401" ]; then
+                echo "::error::expected 401 without a token, got $status"
+                exit 1
+              fi
+              echo "unauthenticated requests correctly rejected"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "::error::service did not become healthy"
+          exit 1

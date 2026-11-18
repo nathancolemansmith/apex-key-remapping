@@ -1,0 +1,15 @@
+# Build state and local artifacts. Copying these in would bust the layer
+# cache on every build and risk shipping a developer's SQLite file.
+**/bin/
+**/obj/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/.vs/
+**/TestResults/
+
+# The test project is not part of the published image.
+Apex.KeyMapping.Api.Tests/
+
+# Docs travel with the repository, not the container.
+REPOSITORY.md
