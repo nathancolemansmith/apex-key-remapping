@@ -9,8 +9,13 @@ coverage/
 npm-debug.log*
 
 # ---- .NET ----
-bin/
-obj/
+# Scoped to the .NET app rather than written as a bare `bin/`. An unanchored
+# rule matches at every depth, and CDK's convention is `bin/` for the app
+# entry point — so `bin/` here silently stopped infra/bin/infra.ts from ever
+# being committed, and the pipeline failed on a missing module in a file that
+# looked present locally.
+apps/api-dotnet/**/bin/
+apps/api-dotnet/**/obj/
 [Dd]ebug/
 [Rr]elease/
 *.user
