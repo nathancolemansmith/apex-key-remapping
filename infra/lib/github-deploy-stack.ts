@@ -22,6 +22,29 @@ export interface GithubDeployStackProps extends StackProps {
    * granted.
    */
   readonly environments?: string[];
+  /**
+   * The subject prefix GitHub actually puts in the token, if it is not the
+   * plain `repo:owner/name`.
+   *
+   * Repositories with **immutable subject claims** enabled get numeric ids
+   * appended to both the owner and the repository:
+   *
+   * ```
+   * repo:owner@348550787/name@1463362704:environment:production
+   * ```
+   *
+   * That is rename-proof — renaming a repository cannot silently hand its
+   * trust to whoever claims the old name — but it means a trust policy
+   * written against the readable name never matches, and the only symptom is
+   * a flat "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+   *
+   * Read the real value rather than guessing it:
+   *
+   * ```bash
+   * gh api repos/OWNER/NAME/actions/oidc/customization/sub
+   * ```
+   */
+  readonly subjectPrefix?: string;
 }
 
 /**
@@ -44,10 +67,11 @@ export class GithubDeployStack extends Stack {
 
     const branches = props.branches ?? ["main"];
     const environments = props.environments ?? [];
+    const prefix = props.subjectPrefix ?? `repo:${props.repository}`;
 
     const subjects = [
-      ...branches.map((branch) => `repo:${props.repository}:ref:refs/heads/${branch}`),
-      ...environments.map((environment) => `repo:${props.repository}:environment:${environment}`),
+      ...branches.map((branch) => `${prefix}:ref:refs/heads/${branch}`),
+      ...environments.map((environment) => `${prefix}:environment:${environment}`),
     ];
 
     const provider = new iam.OpenIdConnectProvider(this, "GithubOidc", {
