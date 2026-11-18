@@ -1,10 +1,16 @@
 # Deploys the .NET API to ECS Fargate when its sources change on main.
 #
-# Authentication is OIDC: GitHub signs a short-lived token describing the
-# repository and branch, AWS trusts that issuer, and the role's trust policy
-# narrows it to this repo's main branch. There is no AWS key stored in the
-# repository. The role itself is created by infra/lib/github-deploy-stack.ts
-# and deployed once by hand — the pipeline cannot provision its own access.
+# Authentication is OIDC: GitHub signs a short-lived token describing the run,
+# AWS trusts that issuer, and the role's trust policy narrows it to this
+# repository. There is no AWS key stored here. The role is created by
+# infra/lib/github-deploy-stack.ts and deployed once by hand — the pipeline
+# cannot provision its own access.
+#
+# Note the interaction between `environment: production` on the deploy job and
+# that trust policy: declaring an environment changes the token's subject to
+# `repo:owner/repo:environment:production`, so the branch rule alone will not
+# match. Both subjects are trusted. Removing the environment here without
+# updating the stack would break the assume, and vice versa.
 name: Deploy .NET API
 
 on:
@@ -42,13 +48,13 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -103,9 +109,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -113,7 +119,7 @@ jobs:
       - run: npm ci
 
       - name: Assume the deploy role
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

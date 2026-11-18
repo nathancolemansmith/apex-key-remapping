@@ -7,6 +7,21 @@ export interface GithubDeployStackProps extends StackProps {
   readonly repository: string;
   /** Branches allowed to assume the role. Defaults to `main` only. */
   readonly branches?: string[];
+  /**
+   * GitHub environments allowed to assume the role.
+   *
+   * This is easy to miss and fails confusingly. A job that declares
+   * `environment: production` gets an OIDC token whose subject is
+   * `repo:owner/repo:environment:production` — the branch is *not* in the
+   * claim at all. Trusting only branch subjects means such a job is denied
+   * with "Not authorized to perform sts:AssumeRoleWithWebIdentity", which
+   * reads like a permissions problem rather than a claim mismatch.
+   *
+   * Environment subjects are still narrow: the environment is a repository
+   * setting, so a fork or an arbitrary branch cannot name one it was not
+   * granted.
+   */
+  readonly environments?: string[];
 }
 
 /**
@@ -28,6 +43,12 @@ export class GithubDeployStack extends Stack {
     super(scope, id, props);
 
     const branches = props.branches ?? ["main"];
+    const environments = props.environments ?? [];
+
+    const subjects = [
+      ...branches.map((branch) => `repo:${props.repository}:ref:refs/heads/${branch}`),
+      ...environments.map((environment) => `repo:${props.repository}:environment:${environment}`),
+    ];
 
     const provider = new iam.OpenIdConnectProvider(this, "GithubOidc", {
       url: "https://token.actions.githubusercontent.com",
@@ -43,12 +64,11 @@ export class GithubDeployStack extends Stack {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
         },
-        // Only these branches of this repository. A pull request from a fork
-        // produces `repo:owner/repo:pull_request`, which matches none of these.
+        // Only these subjects, from this repository. A pull request from a
+        // fork produces `repo:owner/repo:pull_request`, which matches none of
+        // them.
         StringLike: {
-          "token.actions.githubusercontent.com:sub": branches.map(
-            (branch) => `repo:${props.repository}:ref:refs/heads/${branch}`,
-          ),
+          "token.actions.githubusercontent.com:sub": subjects,
         },
       }),
     });
@@ -90,7 +110,7 @@ export class GithubDeployStack extends Stack {
     });
 
     new CfnOutput(this, "TrustedSubjects", {
-      value: branches.map((b) => `repo:${props.repository}:ref:refs/heads/${b}`).join(", "),
+      value: subjects.join(", "),
       description: "The only OIDC subjects allowed to assume the role",
     });
   }
