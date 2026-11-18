@@ -1,0 +1,27 @@
+{
+  "name": "@apex/hid-catalog",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HID key catalog and remapping domain rules shared by the serverless API and the web client.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./keys.json": "./keys.json"
+  },
+  "files": ["dist", "keys.json"],
+  "scripts": {
+    "generate": "node generate.mjs",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

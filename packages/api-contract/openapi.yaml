@@ -1,0 +1,548 @@
+openapi: 3.1.0
+
+info:
+  title: Apex Key Remapping API
+  version: 1.0.0
+  summary: Key remapping for the SteelSeries Apex Pro Gen 3.
+  description: |
+    The canonical contract for this service. Both implementations —
+    `apps/api-dotnet` (ASP.NET Core + SQLite) and `apps/api-serverless`
+    (TypeScript Lambda + DynamoDB) — are written against this document, and CI
+    diffs each backend's generated OpenAPI output against it.
+
+    This file is hand-authored and reviewed. It is the source of truth, not a
+    generated artifact: when a backend disagrees with it, the backend is wrong
+    until this document is deliberately changed.
+
+    Identity always comes from the bearer token's `sub` claim. No route accepts
+    a user identifier, so a caller cannot address another user's keyboards.
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:5080
+    description: .NET API, local development
+  - url: http://localhost:3000
+    description: Serverless API, local development
+
+tags:
+  - name: Mappings
+    description: Reading and writing a caller's key remappings.
+  - name: Keyboards
+    description: Keyboard models this service supports.
+  - name: Operations
+    description: Unauthenticated probes.
+
+security:
+  - cognito: []
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Operations]
+      summary: Liveness probe.
+      description: Unauthenticated. Used by the ALB target group and by CI smoke tests.
+      security: []
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: healthy
+              example:
+                status: healthy
+
+  /api/keyboards:
+    get:
+      operationId: listKeyboards
+      tags: [Keyboards]
+      summary: List supported keyboard models.
+      description: |
+        Returns every model in the catalog, each flagged with whether the
+        calling user already owns one. A user's keyboard is provisioned on
+        first write, so `owned` is false until they save a mapping.
+      responses:
+        "200":
+          description: The supported models.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keyboards]
+                properties:
+                  keyboards:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KeyboardSummary"
+              example:
+                keyboards:
+                  - slug: apex-pro-gen-3
+                    name: Apex Pro Gen 3
+                    vendor: SteelSeries
+                    totalKeys: 92
+                    owned: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/keyboards/{keyboard}/mappings:
+    parameters:
+      - $ref: "#/components/parameters/Keyboard"
+
+    get:
+      operationId: getMappings
+      tags: [Mappings]
+      summary: Get the caller's full key layout.
+      description: |
+        Returns every key on the keyboard in HID code order, remapped or not,
+        as the brief requires. An un-remapped key reports `mappedTo` as itself
+        rather than null, so a client can render the effective layout without
+        special-casing either state.
+
+        A caller who has never written a mapping gets the model's full key list
+        with `remappedCount` of 0 rather than a 404.
+      responses:
+        "200":
+          description: The caller's layout for this keyboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyboardMappingsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownKeyboard"
+
+    post:
+      operationId: addMappings
+      tags: [Mappings]
+      summary: Add remappings, leaving existing ones in place.
+      description: |
+        Incremental upsert. Keys already remapped and not named in the request
+        keep their current target, so a client can bind one key without first
+        fetching and resending the whole layout.
+
+        Sending a `from` that is already remapped updates it to the new target
+        rather than conflicting. Remapping a key to itself clears that
+        override, which is how a single binding is removed without a DELETE.
+
+        The caller's keyboard is provisioned on first write; there is no
+        separate registration step.
+      requestBody:
+        $ref: "#/components/requestBodies/Mappings"
+      responses:
+        "204":
+          $ref: "#/components/responses/Applied"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownKeyboard"
+
+    put:
+      operationId: replaceMappings
+      tags: [Mappings]
+      summary: Replace the caller's entire remap set.
+      description: |
+        Declarative and idempotent: the request body becomes the complete set
+        of remappings and anything absent from it is cleared. The right fit for
+        a client that owns the whole layout, such as a configuration UI with a
+        Save button.
+      requestBody:
+        $ref: "#/components/requestBodies/Mappings"
+      responses:
+        "204":
+          $ref: "#/components/responses/Applied"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownKeyboard"
+
+    delete:
+      operationId: clearAllMappings
+      tags: [Mappings]
+      summary: Clear all of the caller's remaps for this keyboard.
+      description: |
+        Idempotent. Succeeds whether or not anything was remapped, and leaves
+        the keyboard itself owned.
+      responses:
+        "204":
+          $ref: "#/components/responses/Applied"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownKeyboard"
+
+  /api/keyboards/{keyboard}/mappings/{hidCode}:
+    parameters:
+      - $ref: "#/components/parameters/Keyboard"
+      - name: hidCode
+        in: path
+        required: true
+        description: |
+          The physical key whose remap is being cleared, as a decimal integer
+          or a hex string. Must be a key that exists on this keyboard.
+        schema:
+          $ref: "#/components/schemas/HidCodeInput"
+        examples:
+          hex:
+            summary: Caps Lock as hex
+            value: "0x39"
+          decimal:
+            summary: Caps Lock as decimal
+            value: 57
+
+    delete:
+      operationId: clearMapping
+      tags: [Mappings]
+      summary: Clear one key's remap.
+      description: |
+        Idempotent: clearing a key that was not remapped still returns 204, so
+        a client retrying after a dropped response does not see a spurious
+        error. A `hidCode` that is not a key on this keyboard is a 400, because
+        that is a malformed request rather than a missing resource.
+      responses:
+        "204":
+          $ref: "#/components/responses/Applied"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UnknownKeyboard"
+
+components:
+  securitySchemes:
+    cognito:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        An access token from the AWS Cognito user pool. The `sub` claim
+        identifies the owner of every keyboard touched by the request.
+
+        Locally, `Auth:Mode=Development` accepts RS256 tokens from an
+        in-process dev issuer with its own JWKS, so the real validation path —
+        signature, issuer, expiry, `sub` extraction — still runs without an AWS
+        account. Development mode refuses to activate in production.
+
+  parameters:
+    Keyboard:
+      name: keyboard
+      in: path
+      required: true
+      description: |
+        The keyboard model, accepted as either the slug (`apex-pro-gen-3`) or
+        the display name (`Apex Pro Gen 3`, URL-encoded). Matching is
+        case-insensitive.
+      schema:
+        type: string
+        minLength: 1
+      examples:
+        slug:
+          summary: Slug form
+          value: apex-pro-gen-3
+        displayName:
+          summary: Display name form
+          value: Apex Pro Gen 3
+
+  requestBodies:
+    Mappings:
+      required: true
+      description: The remappings to apply.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/MappingsRequest"
+          examples:
+            capsLockToCtrl:
+              summary: Remap Caps Lock to Left Ctrl
+              value:
+                mappings:
+                  - from: "0x39"
+                    to: "0xE0"
+            fromTheBrief:
+              summary: The brief's own example — A to Z, and 4 to 2
+              value:
+                mappings:
+                  - from: "0x04"
+                    to: "0x1D"
+                  - from: "0x21"
+                    to: "0x1F"
+            decimalCodes:
+              summary: Decimal integers are accepted too
+              value:
+                mappings:
+                  - from: 4
+                    to: 29
+            clearOne:
+              summary: Mapping a key to itself removes the override
+              value:
+                mappings:
+                  - from: "0x04"
+                    to: "0x04"
+
+  responses:
+    Applied:
+      description: |
+        Applied. The brief asks for no response body beyond an indication of
+        success or failure, so both writes return an empty 204.
+
+    Unauthorized:
+      description: |
+        The bearer token is missing, malformed, expired, or fails signature,
+        issuer or audience validation. The body is deliberately uninformative
+        about which.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+          example:
+            type: https://datatracker.ietf.org/doc/html/rfc9457
+            title: Unauthorized
+            status: 401
+            detail: A valid bearer token is required.
+
+    UnknownKeyboard:
+      description: The token was valid but no such keyboard model exists.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+          example:
+            type: https://datatracker.ietf.org/doc/html/rfc9457
+            title: Not Found
+            status: 404
+            detail: "'apex-pro-gen-9' is not a supported keyboard."
+
+    ValidationFailed:
+      description: |
+        One or more mappings were rejected. Every failure is reported together
+        rather than stopping at the first, and the request changes nothing.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+          example:
+            type: https://datatracker.ietf.org/doc/html/rfc9457
+            title: Invalid key mappings
+            status: 400
+            detail: The request contained 2 invalid mappings.
+            errors:
+              - index: 0
+                field: to
+                message: 0x64 is not a key on Apex Pro Gen 3.
+              - index: 2
+                field: from
+                message: 0x04 is remapped more than once in this request (also at index 1).
+
+  schemas:
+    HidCode:
+      type: integer
+      minimum: 0
+      maximum: 255
+      description: An 8-bit USB HID usage code, as returned by this API.
+      examples: [4]
+
+    HidCodeInput:
+      description: |
+        A HID code as *accepted* by this API. Decimal integers and hex strings
+        are both valid, because clients reasonably hold these either way — the
+        reference tables use hex, while a database column holds an integer.
+
+        A bare two-digit string is read as decimal when it could be
+        (`"29"` is 29, not 0x29) and as hex only when it cannot (`"1D"`).
+      oneOf:
+        - $ref: "#/components/schemas/HidCode"
+        - type: string
+          pattern: "^(0[xX][0-9A-Fa-f]{1,2}|[0-9]{1,3}|[0-9A-Fa-f]{1,2})$"
+      examples: ["0x04", 4]
+
+    KeyboardSummary:
+      type: object
+      required: [slug, name, vendor, totalKeys, owned]
+      properties:
+        slug:
+          type: string
+          examples: [apex-pro-gen-3]
+        name:
+          type: string
+          examples: [Apex Pro Gen 3]
+        vendor:
+          type: string
+          examples: [SteelSeries]
+        totalKeys:
+          type: integer
+          description: How many keys this model exposes for remapping.
+          examples: [92]
+        owned:
+          type: boolean
+          description: Whether the calling user has a keyboard of this model.
+
+    HidKey:
+      type: object
+      description: A physical key on a keyboard.
+      required: [hidCode, hidCodeHex, name, category]
+      properties:
+        hidCode:
+          $ref: "#/components/schemas/HidCode"
+        hidCodeHex:
+          type: string
+          pattern: "^0x[0-9A-F]{2}$"
+          description: Canonical uppercase hex rendering of `hidCode`.
+          examples: ["0x04"]
+        name:
+          type: string
+          examples: [A]
+        category:
+          type: string
+          description: Grouping used by the client.
+          enum: [Letters, Numbers, Special, Function, Arrows, Modifiers, Numpad]
+
+    KeyMappingView:
+      type: object
+      description: |
+        One key's current state. `mappedTo` is always populated — an un-remapped
+        key maps to itself — so a client can render the effective layout
+        without branching.
+      required: [hidCode, hidCodeHex, name, category, isRemapped, mappedTo]
+      properties:
+        hidCode:
+          $ref: "#/components/schemas/HidCode"
+        hidCodeHex:
+          type: string
+          pattern: "^0x[0-9A-F]{2}$"
+        name:
+          type: string
+        category:
+          type: string
+        isRemapped:
+          type: boolean
+        mappedTo:
+          $ref: "#/components/schemas/HidKey"
+
+    KeyboardMappingsResponse:
+      type: object
+      required: [keyboard, keyboardSlug, totalKeys, remappedCount, keys]
+      properties:
+        keyboard:
+          type: string
+          examples: [Apex Pro Gen 3]
+        keyboardSlug:
+          type: string
+          examples: [apex-pro-gen-3]
+        totalKeys:
+          type: integer
+          description: Every key on the model, remapped or not.
+          examples: [92]
+        remappedCount:
+          type: integer
+          description: |
+            How many keys carry a genuine override. Self-maps are normalized
+            away before storage, so this never counts a no-op.
+          examples: [1]
+        keys:
+          type: array
+          description: Every key on the keyboard, in ascending HID code order.
+          items:
+            $ref: "#/components/schemas/KeyMappingView"
+      example:
+        keyboard: Apex Pro Gen 3
+        keyboardSlug: apex-pro-gen-3
+        totalKeys: 92
+        remappedCount: 1
+        keys:
+          - hidCode: 4
+            hidCodeHex: "0x04"
+            name: A
+            category: Letters
+            isRemapped: true
+            mappedTo:
+              hidCode: 29
+              hidCodeHex: "0x1D"
+              name: Z
+              category: Letters
+          - hidCode: 5
+            hidCodeHex: "0x05"
+            name: B
+            category: Letters
+            isRemapped: false
+            mappedTo:
+              hidCode: 5
+              hidCodeHex: "0x05"
+              name: B
+              category: Letters
+
+    MappingsRequest:
+      type: object
+      required: [mappings]
+      properties:
+        mappings:
+          type: array
+          description: |
+            The remappings to apply. May be empty: for PUT that clears the
+            layout, for POST it is a no-op.
+          items:
+            $ref: "#/components/schemas/MappingRequestItem"
+
+    MappingRequestItem:
+      type: object
+      description: |
+        A single remap: pressing `from` should produce `to`.
+
+        Two keys may legitimately target the same key, because a real keyboard
+        can have two physical keys that both emit `A`. A key may appear only
+        once as `from` within one request.
+      required: [from, to]
+      properties:
+        from:
+          $ref: "#/components/schemas/HidCodeInput"
+        to:
+          $ref: "#/components/schemas/HidCodeInput"
+
+    ValidationError:
+      type: object
+      description: One field-level reason a mapping was rejected.
+      required: [index, field, message]
+      properties:
+        index:
+          type: integer
+          description: |
+            Position in the submitted `mappings` array, or -1 when the failure
+            is with the array itself rather than one entry.
+          examples: [0]
+        field:
+          type: string
+          enum: [from, to, mappings]
+        message:
+          type: string
+          examples: ["0x64 is not a key on Apex Pro Gen 3."]
+
+    ProblemDetails:
+      type: object
+      description: RFC 9457 problem details, matched field-for-field by both implementations.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        errors:
+          type: array
+          description: Present on validation failures; every problem at once.
+          items:
+            $ref: "#/components/schemas/ValidationError"

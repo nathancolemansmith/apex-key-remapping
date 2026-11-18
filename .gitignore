@@ -1,0 +1,52 @@
+# ---- Node / TypeScript ----
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.vite/
+coverage/
+*.log
+npm-debug.log*
+
+# ---- .NET ----
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+TestResults/
+*.trx
+*.coverage
+*.coverenv
+
+# ---- SQLite (local dev databases are not source) ----
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ---- AWS CDK ----
+cdk.out/
+cdk.context.json
+.cdk.staging/
+
+# ---- Environment / secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+
+# ---- Editor / OS ----
+# Shared workspace config is committed (Peacock theme is SteelSeries orange,
+# plus launch/task definitions for running both APIs); personal state is not.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+.DS_Store
+Thumbs.db

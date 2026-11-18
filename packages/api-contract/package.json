@@ -1,0 +1,18 @@
+{
+  "name": "@apex/api-contract",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Canonical OpenAPI contract both API implementations are validated against.",
+  "type": "module",
+  "exports": {
+    "./openapi.yaml": "./openapi.yaml"
+  },
+  "files": ["openapi.yaml"],
+  "scripts": {
+    "test": "node validate.mjs",
+    "validate": "node validate.mjs"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
+}

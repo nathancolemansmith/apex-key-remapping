@@ -1,0 +1,569 @@
+// GENERATED FILE — do not edit by hand.
+// Source: HidKeyCodes.md via packages/hid-catalog/generate.mjs
+// Regenerate with: npm run catalog:generate
+
+import type { Catalog } from "./types.js";
+
+export const generatedCatalog: Catalog = {
+  "keyboards": [
+    {
+      "slug": "apex-pro-gen-3",
+      "name": "Apex Pro Gen 3",
+      "vendor": "SteelSeries",
+      "keys": [
+        {
+          "hidCode": 4,
+          "hidCodeHex": "0x04",
+          "name": "A",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 5,
+          "hidCodeHex": "0x05",
+          "name": "B",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 6,
+          "hidCodeHex": "0x06",
+          "name": "C",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 7,
+          "hidCodeHex": "0x07",
+          "name": "D",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 8,
+          "hidCodeHex": "0x08",
+          "name": "E",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 9,
+          "hidCodeHex": "0x09",
+          "name": "F",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 10,
+          "hidCodeHex": "0x0A",
+          "name": "G",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 11,
+          "hidCodeHex": "0x0B",
+          "name": "H",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 12,
+          "hidCodeHex": "0x0C",
+          "name": "I",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 13,
+          "hidCodeHex": "0x0D",
+          "name": "J",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 14,
+          "hidCodeHex": "0x0E",
+          "name": "K",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 15,
+          "hidCodeHex": "0x0F",
+          "name": "L",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 16,
+          "hidCodeHex": "0x10",
+          "name": "M",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 17,
+          "hidCodeHex": "0x11",
+          "name": "N",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 18,
+          "hidCodeHex": "0x12",
+          "name": "O",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 19,
+          "hidCodeHex": "0x13",
+          "name": "P",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 20,
+          "hidCodeHex": "0x14",
+          "name": "Q",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 21,
+          "hidCodeHex": "0x15",
+          "name": "R",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 22,
+          "hidCodeHex": "0x16",
+          "name": "S",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 23,
+          "hidCodeHex": "0x17",
+          "name": "T",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 24,
+          "hidCodeHex": "0x18",
+          "name": "U",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 25,
+          "hidCodeHex": "0x19",
+          "name": "V",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 26,
+          "hidCodeHex": "0x1A",
+          "name": "W",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 27,
+          "hidCodeHex": "0x1B",
+          "name": "X",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 28,
+          "hidCodeHex": "0x1C",
+          "name": "Y",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 29,
+          "hidCodeHex": "0x1D",
+          "name": "Z",
+          "category": "Letters"
+        },
+        {
+          "hidCode": 30,
+          "hidCodeHex": "0x1E",
+          "name": "1",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 31,
+          "hidCodeHex": "0x1F",
+          "name": "2",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 32,
+          "hidCodeHex": "0x20",
+          "name": "3",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 33,
+          "hidCodeHex": "0x21",
+          "name": "4",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 34,
+          "hidCodeHex": "0x22",
+          "name": "5",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 35,
+          "hidCodeHex": "0x23",
+          "name": "6",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 36,
+          "hidCodeHex": "0x24",
+          "name": "7",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 37,
+          "hidCodeHex": "0x25",
+          "name": "8",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 38,
+          "hidCodeHex": "0x26",
+          "name": "9",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 39,
+          "hidCodeHex": "0x27",
+          "name": "0",
+          "category": "Numbers"
+        },
+        {
+          "hidCode": 40,
+          "hidCodeHex": "0x28",
+          "name": "Enter",
+          "category": "Special"
+        },
+        {
+          "hidCode": 41,
+          "hidCodeHex": "0x29",
+          "name": "Escape",
+          "category": "Special"
+        },
+        {
+          "hidCode": 42,
+          "hidCodeHex": "0x2A",
+          "name": "Backspace",
+          "category": "Special"
+        },
+        {
+          "hidCode": 43,
+          "hidCodeHex": "0x2B",
+          "name": "Tab",
+          "category": "Special"
+        },
+        {
+          "hidCode": 44,
+          "hidCodeHex": "0x2C",
+          "name": "Space",
+          "category": "Special"
+        },
+        {
+          "hidCode": 57,
+          "hidCodeHex": "0x39",
+          "name": "Caps Lock",
+          "category": "Special"
+        },
+        {
+          "hidCode": 58,
+          "hidCodeHex": "0x3A",
+          "name": "F1",
+          "category": "Function"
+        },
+        {
+          "hidCode": 59,
+          "hidCodeHex": "0x3B",
+          "name": "F2",
+          "category": "Function"
+        },
+        {
+          "hidCode": 60,
+          "hidCodeHex": "0x3C",
+          "name": "F3",
+          "category": "Function"
+        },
+        {
+          "hidCode": 61,
+          "hidCodeHex": "0x3D",
+          "name": "F4",
+          "category": "Function"
+        },
+        {
+          "hidCode": 62,
+          "hidCodeHex": "0x3E",
+          "name": "F5",
+          "category": "Function"
+        },
+        {
+          "hidCode": 63,
+          "hidCodeHex": "0x3F",
+          "name": "F6",
+          "category": "Function"
+        },
+        {
+          "hidCode": 64,
+          "hidCodeHex": "0x40",
+          "name": "F7",
+          "category": "Function"
+        },
+        {
+          "hidCode": 65,
+          "hidCodeHex": "0x41",
+          "name": "F8",
+          "category": "Function"
+        },
+        {
+          "hidCode": 66,
+          "hidCodeHex": "0x42",
+          "name": "F9",
+          "category": "Function"
+        },
+        {
+          "hidCode": 67,
+          "hidCodeHex": "0x43",
+          "name": "F10",
+          "category": "Function"
+        },
+        {
+          "hidCode": 68,
+          "hidCodeHex": "0x44",
+          "name": "F11",
+          "category": "Function"
+        },
+        {
+          "hidCode": 69,
+          "hidCodeHex": "0x45",
+          "name": "F12",
+          "category": "Function"
+        },
+        {
+          "hidCode": 70,
+          "hidCodeHex": "0x46",
+          "name": "Print Screen",
+          "category": "Special"
+        },
+        {
+          "hidCode": 71,
+          "hidCodeHex": "0x47",
+          "name": "Scroll Lock",
+          "category": "Special"
+        },
+        {
+          "hidCode": 72,
+          "hidCodeHex": "0x48",
+          "name": "Pause",
+          "category": "Special"
+        },
+        {
+          "hidCode": 73,
+          "hidCodeHex": "0x49",
+          "name": "Insert",
+          "category": "Special"
+        },
+        {
+          "hidCode": 74,
+          "hidCodeHex": "0x4A",
+          "name": "Home",
+          "category": "Special"
+        },
+        {
+          "hidCode": 75,
+          "hidCodeHex": "0x4B",
+          "name": "Page Up",
+          "category": "Special"
+        },
+        {
+          "hidCode": 76,
+          "hidCodeHex": "0x4C",
+          "name": "Delete",
+          "category": "Special"
+        },
+        {
+          "hidCode": 77,
+          "hidCodeHex": "0x4D",
+          "name": "End",
+          "category": "Special"
+        },
+        {
+          "hidCode": 78,
+          "hidCodeHex": "0x4E",
+          "name": "Page Down",
+          "category": "Special"
+        },
+        {
+          "hidCode": 79,
+          "hidCodeHex": "0x4F",
+          "name": "Right Arrow",
+          "category": "Arrows"
+        },
+        {
+          "hidCode": 80,
+          "hidCodeHex": "0x50",
+          "name": "Left Arrow",
+          "category": "Arrows"
+        },
+        {
+          "hidCode": 81,
+          "hidCodeHex": "0x51",
+          "name": "Down Arrow",
+          "category": "Arrows"
+        },
+        {
+          "hidCode": 82,
+          "hidCodeHex": "0x52",
+          "name": "Up Arrow",
+          "category": "Arrows"
+        },
+        {
+          "hidCode": 83,
+          "hidCodeHex": "0x53",
+          "name": "Num Lock",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 84,
+          "hidCodeHex": "0x54",
+          "name": "Numpad /",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 85,
+          "hidCodeHex": "0x55",
+          "name": "Numpad *",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 86,
+          "hidCodeHex": "0x56",
+          "name": "Numpad -",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 87,
+          "hidCodeHex": "0x57",
+          "name": "Numpad +",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 88,
+          "hidCodeHex": "0x58",
+          "name": "Numpad Enter",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 89,
+          "hidCodeHex": "0x59",
+          "name": "Numpad 1",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 90,
+          "hidCodeHex": "0x5A",
+          "name": "Numpad 2",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 91,
+          "hidCodeHex": "0x5B",
+          "name": "Numpad 3",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 92,
+          "hidCodeHex": "0x5C",
+          "name": "Numpad 4",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 93,
+          "hidCodeHex": "0x5D",
+          "name": "Numpad 5",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 94,
+          "hidCodeHex": "0x5E",
+          "name": "Numpad 6",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 95,
+          "hidCodeHex": "0x5F",
+          "name": "Numpad 7",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 96,
+          "hidCodeHex": "0x60",
+          "name": "Numpad 8",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 97,
+          "hidCodeHex": "0x61",
+          "name": "Numpad 9",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 98,
+          "hidCodeHex": "0x62",
+          "name": "Numpad 0",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 99,
+          "hidCodeHex": "0x63",
+          "name": "Numpad .",
+          "category": "Numpad"
+        },
+        {
+          "hidCode": 224,
+          "hidCodeHex": "0xE0",
+          "name": "Left Ctrl",
+          "category": "Modifiers"
+        },
+        {
+          "hidCode": 225,
+          "hidCodeHex": "0xE1",
+          "name": "Left Shift",
+          "category": "Modifiers"
+        },
+        {
+          "hidCode": 226,
+          "hidCodeHex": "0xE2",
+          "name": "Left Alt",
+          "category": "Modifiers"
+        },
+        {
+          "hidCode": 227,
+          "hidCodeHex": "0xE3",
+          "name": "Left GUI (Win/Cmd)",
+          "category": "Modifiers"
+        },
+        {
+          "hidCode": 228,
+          "hidCodeHex": "0xE4",
+          "name": "Right Ctrl",
+          "category": "Modifiers"
+        },
+        {
+          "hidCode": 229,
+          "hidCodeHex": "0xE5",
+          "name": "Right Shift",
+          "category": "Modifiers"
+        },
+        {
+          "hidCode": 230,
+          "hidCodeHex": "0xE6",
+          "name": "Right Alt",
+          "category": "Modifiers"
+        },
+        {
+          "hidCode": 231,
+          "hidCodeHex": "0xE7",
+          "name": "Right GUI",
+          "category": "Modifiers"
+        }
+      ]
+    }
+  ]
+} as const;

@@ -1,0 +1,29 @@
+{
+  "name": "apex-key-remapping",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Key remapping service for the Apex Pro Gen 3, implemented twice: ASP.NET Core and TypeScript serverless.",
+  "workspaces": [
+    "packages/*",
+    "apps/api-serverless",
+    "apps/web",
+    "infra"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "catalog:generate": "node packages/hid-catalog/generate.mjs",
+    "contract:validate": "npm run validate -w @apex/api-contract",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test:dotnet": "dotnet test apps/api-dotnet",
+    "dev:serverless": "npm run dev -w @apex/api-serverless",
+    "dev:dotnet": "dotnet run --project apps/api-dotnet/Apex.KeyMapping.Api",
+    "dev:web": "npm run dev -w @apex/web"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
