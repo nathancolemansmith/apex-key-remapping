@@ -1,0 +1,911 @@
+{
+  "info": {
+    "name": "Apex Key Remapping",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Apex Key Remapping API 1.0.0\n\nGENERATED from packages/api-contract/openapi.yaml — regenerate with `npm run catalog:generate`'s sibling, `npm run postman:generate`, rather than editing here.\n\nPoint {{baseUrl}} at either implementation; both answer the same contract. Run the scenario folder in order with the Collection Runner, or headlessly with `npm run postman:test`."
+  },
+  "item": [
+    {
+      "name": "Health",
+      "description": "Unauthenticated liveness probe.",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Unauthenticated. Used by the ALB target group and by CI smoke tests."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"reports healthy\", () => pm.expect(pm.response.json().status).to.eql(\"healthy\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Keyboards",
+      "description": "Which models this service supports.",
+      "item": [
+        {
+          "name": "GET /api/keyboards",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards"
+              ]
+            },
+            "description": "Returns every model in the catalog, each flagged with whether the\ncalling user already owns one. A user's keyboard is provisioned on\nfirst write, so `owned` is false until they save a mapping.\n"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"includes the Apex Pro Gen 3 with 92 keys\", () => {",
+                  "    const model = pm.response.json().keyboards.find((k) => k.slug === \"apex-pro-gen-3\");",
+                  "    pm.expect(model, \"apex-pro-gen-3 missing\").to.be.an(\"object\");",
+                  "    pm.expect(model.totalKeys).to.eql(92);",
+                  "    pm.expect(model.owned).to.be.a(\"boolean\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Mappings",
+      "description": "The read and write operations. Each targets {{keyboard}}, which accepts the slug or the display name.",
+      "item": [
+        {
+          "name": "GET mappings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "description": "Returns every key on the keyboard in HID code order, remapped or not,\nas the brief requires. An un-remapped key reports `mappedTo` as itself\nrather than null, so a client can render the effective layout without\nspecial-casing either state.\n\nA caller who has never written a mapping gets the model's full key list\nwith `remappedCount` of 0 rather than a 404.\n"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"returns every key, remapped or not\", () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.totalKeys).to.eql(92);",
+                  "    pm.expect(body.keys).to.have.lengthOf(92);",
+                  "    pm.expect(body.keyboardSlug).to.eql(\"apex-pro-gen-3\");",
+                  "});",
+                  "pm.test(\"every key reports an effective target\", () => {",
+                  "    // An un-remapped key maps to itself rather than null, so a client",
+                  "    // never has to special-case the two states.",
+                  "    pm.response.json().keys.forEach((key) => {",
+                  "        pm.expect(key.mappedTo, `${key.hidCodeHex} mappedTo`).to.be.an(\"object\");",
+                  "        if (!key.isRemapped) pm.expect(key.mappedTo.hidCode).to.eql(key.hidCode);",
+                  "    });",
+                  "});",
+                  "pm.test(\"keys are in ascending HID code order\", () => {",
+                  "    const codes = pm.response.json().keys.map((k) => k.hidCode);",
+                  "    pm.expect(codes).to.eql([...codes].sort((a, b) => a - b));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST add mappings — the brief's example",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mappings\": [\n    {\n      \"from\": \"0x04\",\n      \"to\": \"0x1D\"\n    },\n    {\n      \"from\": \"0x21\",\n      \"to\": \"0x1F\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Incremental upsert. Keys already remapped and not named in the request\nkeep their current target, so a client can bind one key without first\nfetching and resending the whole layout.\n\nSending a `from` that is already remapped updates it to the new target\nrather than conflicting. Remapping a key to itself clears that\noverride, which is how a single binding is removed without a DELETE.\n\nThe caller's keyboard is provisioned on first write; there is no\nseparate registration step.\n"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST add mappings — Caps Lock to Left Ctrl",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mappings\": [\n    {\n      \"from\": \"0x39\",\n      \"to\": \"0xE0\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Incremental: keys already remapped and not named here keep their target."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST add mappings — clear one by mapping it to itself",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mappings\": [\n    {\n      \"from\": \"0x04\",\n      \"to\": \"0x04\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Remapping a key back to itself removes the override."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT replace mappings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mappings\": [\n    {\n      \"from\": \"0x04\",\n      \"to\": \"0x1D\"\n    },\n    {\n      \"from\": \"0x21\",\n      \"to\": \"0x1F\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Declarative and idempotent: the request body becomes the complete set\nof remappings and anything absent from it is cleared. The right fit for\na client that owns the whole layout, such as a configuration UI with a\nSave button.\n"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE one mapping",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings/0x04",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings",
+                "0x04"
+              ]
+            },
+            "description": "Idempotent: clearing a key that was not remapped still returns 204, so\na client retrying after a dropped response does not see a spurious\nerror. A `hidCode` that is not a key on this keyboard is a 400, because\nthat is a malformed request rather than a missing resource.\n"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE all mappings",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "description": "Idempotent. Succeeds whether or not anything was remapped, and leaves\nthe keyboard itself owned.\n"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Scenario — the brief, end to end",
+      "description": "Run this folder in order (Postman Runner, or `npm run postman:test`). It walks the behavior the assessment asks for and checks the answers, rather than only checking that the routes exist.",
+      "item": [
+        {
+          "name": "1. Start from a clean layout",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "description": "Idempotent, so this is safe whether or not anything was remapped."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Assign the brief's mappings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mappings\": [\n    {\n      \"from\": \"0x04\",\n      \"to\": \"0x1D\"\n    },\n    {\n      \"from\": \"0x21\",\n      \"to\": \"0x1F\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "\"A (0x04)\" should remap to \"Z (0x1D)\", and \"4 (0x21)\" to \"2 (0x1F)\"."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Read back the full layout",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "description": "Every key on the keyboard, remapped or not, as the brief requires."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"returns every key, remapped or not\", () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.totalKeys).to.eql(92);",
+                  "    pm.expect(body.keys).to.have.lengthOf(92);",
+                  "    pm.expect(body.keyboardSlug).to.eql(\"apex-pro-gen-3\");",
+                  "});",
+                  "pm.test(\"every key reports an effective target\", () => {",
+                  "    // An un-remapped key maps to itself rather than null, so a client",
+                  "    // never has to special-case the two states.",
+                  "    pm.response.json().keys.forEach((key) => {",
+                  "        pm.expect(key.mappedTo, `${key.hidCodeHex} mappedTo`).to.be.an(\"object\");",
+                  "        if (!key.isRemapped) pm.expect(key.mappedTo.hidCode).to.eql(key.hidCode);",
+                  "    });",
+                  "});",
+                  "pm.test(\"keys are in ascending HID code order\", () => {",
+                  "    const codes = pm.response.json().keys.map((k) => k.hidCode);",
+                  "    pm.expect(codes).to.eql([...codes].sort((a, b) => a - b));",
+                  "});",
+                  "pm.test(\"exactly the two requested keys are remapped\", () => {",
+                  "    pm.expect(pm.response.json().remappedCount).to.eql(2);",
+                  "});",
+                  "pm.test(\"A maps to Z, and 4 maps to 2\", () => {",
+                  "    const keys = pm.response.json().keys;",
+                  "    const find = (code) => keys.find((k) => k.hidCode === code);",
+                  "",
+                  "    pm.expect(find(0x04).name).to.eql(\"A\");",
+                  "    pm.expect(find(0x04).isRemapped).to.be.true;",
+                  "    pm.expect(find(0x04).mappedTo.name).to.eql(\"Z\");",
+                  "    pm.expect(find(0x04).mappedTo.hidCodeHex).to.eql(\"0x1D\");",
+                  "",
+                  "    pm.expect(find(0x21).name).to.eql(\"4\");",
+                  "    pm.expect(find(0x21).mappedTo.name).to.eql(\"2\");",
+                  "});",
+                  "pm.test(\"remapping A to Z leaves Z itself alone\", () => {",
+                  "    const z = pm.response.json().keys.find((k) => k.hidCode === 0x1D);",
+                  "    pm.expect(z.isRemapped).to.be.false;",
+                  "    pm.expect(z.mappedTo.hidCode).to.eql(0x1D);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. A different user sees their own layout",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "someone-else"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "description": "Same database, same keyboard, different owner. Identity comes from the request context and no route accepts a user, so there is no way to ask for someone else's layout."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"another user has nothing remapped\", () => {",
+                  "    pm.expect(pm.response.json().remappedCount).to.eql(0);",
+                  "});",
+                  "pm.test(\"but still gets the whole keyboard\", () => {",
+                  "    pm.expect(pm.response.json().totalKeys).to.eql(92);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Clearing one binding by mapping it to itself",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mappings\": [\n    {\n      \"from\": \"0x04\",\n      \"to\": \"0x04\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Regression guard. Validation strips identity mappings before the merge sees them, so this path was once silently a no-op while both halves passed their own unit tests."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Only the cleared key went away",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"one of the two remains\", () => {",
+                  "    pm.expect(pm.response.json().remappedCount).to.eql(1);",
+                  "});",
+                  "pm.test(\"0x04 was cleared and 0x21 survived\", () => {",
+                  "    const remapped = pm.response.json().keys.filter((k) => k.isRemapped).map((k) => k.hidCode);",
+                  "    pm.expect(remapped).to.eql([0x21]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. An invalid remap is rejected with every error at once",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mappings\": [\n    {\n      \"from\": \"0x04\",\n      \"to\": \"0x64\"\n    },\n    {\n      \"from\": \"0x05\",\n      \"to\": \"0x06\"\n    },\n    {\n      \"from\": \"0x05\",\n      \"to\": \"0x07\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "0x64 is a real HID usage code but not a key on this keyboard, and 0x05 appears twice as a source. Both are reported together, and the request changes nothing."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"is RFC 9457 problem details\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.all.keys(\"type\", \"title\", \"status\", \"detail\", ...(body.errors ? [\"errors\"] : []));",
+                  "    pm.expect(body.status).to.eql(400);",
+                  "});",
+                  "pm.test(\"reports both problems, not just the first\", () => {",
+                  "    const errors = pm.response.json().errors;",
+                  "    pm.expect(errors).to.have.lengthOf(2);",
+                  "    pm.expect(errors[0]).to.deep.include({ index: 0, field: \"to\" });",
+                  "    pm.expect(errors[0].message).to.include(\"not a key on\");",
+                  "    pm.expect(errors[1]).to.deep.include({ index: 2, field: \"from\" });",
+                  "    pm.expect(errors[1].message).to.include(\"remapped more than once\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. The rejected request changed nothing",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"still just the one mapping\", () => {",
+                  "    pm.expect(pm.response.json().remappedCount).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. An unknown keyboard is a 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/model-m/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "model-m",
+                "mappings"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"is RFC 9457 problem details\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\");",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.have.all.keys(\"type\", \"title\", \"status\", \"detail\", ...(body.errors ? [\"errors\"] : []));",
+                  "    pm.expect(body.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Clean up",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Dev-User",
+                "value": "{{devUser}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/keyboards/{{keyboard}}/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "keyboards",
+                "{{keyboard}}",
+                "mappings"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"responds 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5080",
+      "type": "string"
+    },
+    {
+      "key": "keyboard",
+      "value": "apex-pro-gen-3",
+      "type": "string"
+    },
+    {
+      "key": "devUser",
+      "value": "alice",
+      "type": "string"
+    }
+  ]
+}

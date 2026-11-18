@@ -153,6 +153,13 @@ describe("validateMappings", () => {
     expect(result.mappings).toEqual([{ from: 0x05, to: 0x06 }]);
   });
 
+  it("reports an identity mapping as a clear rather than discarding it", () => {
+    const result = validateMappings(apex, [{ from: 0x04, to: 0x04 }]);
+    expect(result.ok).toBe(true);
+    expect(result.mappings).toEqual([]);
+    expect(result.cleared).toEqual([0x04]);
+  });
+
   it("collects every error instead of stopping at the first", () => {
     const result = validateMappings(apex, [
       { from: 0xff, to: 0xfe },
@@ -232,6 +239,37 @@ describe("mergeMappings", () => {
   it("treats an identity mapping as a clear", () => {
     const merged = mergeMappings([{ from: 0x04, to: 0x1d }], [{ from: 0x04, to: 0x04 }]);
     expect(merged).toEqual([]);
+  });
+
+  /**
+   * Regression: validate and merge were each correct alone, and wrong
+   * together. validateMappings strips identity mappings, so the `from === to`
+   * branch in mergeMappings never saw them and a POST asking to clear a
+   * binding left the old one in place — contradicting the README and the
+   * OpenAPI `clearOne` example. Only the composed path catches that, which is
+   * why this test drives both functions the way the API does.
+   */
+  it("clears an existing override when a request maps a key to itself", () => {
+    const existing = [{ from: 0x04, to: 0x1d }];
+    const result = validateMappings(apex, [{ from: 0x04, to: 0x04 }]);
+
+    expect(mergeMappings(existing, result.mappings, result.cleared)).toEqual([]);
+  });
+
+  it("clears one key while adding another in the same request", () => {
+    const existing = [
+      { from: 0x04, to: 0x1d },
+      { from: 0x05, to: 0x06 },
+    ];
+    const result = validateMappings(apex, [
+      { from: 0x04, to: 0x04 },
+      { from: 0x07, to: 0x08 },
+    ]);
+
+    expect(mergeMappings(existing, result.mappings, result.cleared)).toEqual([
+      { from: 0x05, to: 0x06 },
+      { from: 0x07, to: 0x08 },
+    ]);
   });
 });
 

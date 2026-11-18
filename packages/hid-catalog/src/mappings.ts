@@ -12,6 +12,17 @@ export interface ValidationResult {
   readonly ok: boolean;
   /** Normalized, de-duplicated, identity-stripped mappings. Only set when ok. */
   readonly mappings: readonly KeyMapping[];
+  /**
+   * Keys the request explicitly mapped to themselves, meaning "clear this
+   * override". Kept separate from `mappings` so the latter only ever holds
+   * genuine overrides — which is what makes PUT trivially correct and
+   * `remappedCount` honest.
+   *
+   * These have to be reported rather than silently dropped: an identity
+   * mapping is an instruction, not a no-op, and a caller that merges without
+   * it will leave the old override in place.
+   */
+  readonly cleared: readonly number[];
   readonly errors: readonly ValidationError[];
 }
 
@@ -53,11 +64,13 @@ export function validateMappings(keyboard: Keyboard, input: unknown): Validation
     return {
       ok: false,
       mappings: [],
+      cleared: [],
       errors: [{ index: -1, field: "mappings", message: "`mappings` must be an array." }],
     };
   }
 
   const normalized = new Map<number, number>();
+  const cleared = new Set<number>();
   const seenFrom = new Map<number, number>();
 
   input.forEach((entry, index) => {
@@ -116,18 +129,20 @@ export function validateMappings(keyboard: Keyboard, input: unknown): Validation
     }
     seenFrom.set(from, index);
 
-    // A key mapped to itself carries no remap; drop it so storage only ever
-    // holds real overrides and `remappedCount` stays honest.
+    // A key mapped to itself carries no remap. It is kept out of `mappings`
+    // so storage only ever holds real overrides, but reported in `cleared`
+    // because it still means something: remove whatever that key had.
     if (from !== to) normalized.set(from, to);
+    else cleared.add(from);
   });
 
-  if (errors.length > 0) return { ok: false, mappings: [], errors };
+  if (errors.length > 0) return { ok: false, mappings: [], cleared: [], errors };
 
   const mappings = [...normalized.entries()]
     .map(([from, to]) => ({ from, to }))
     .sort((a, b) => a.from - b.from);
 
-  return { ok: true, mappings, errors: [] };
+  return { ok: true, mappings, cleared: [...cleared].sort((a, b) => a - b), errors: [] };
 }
 
 function describe(value: unknown): string {
@@ -170,12 +185,22 @@ export function buildMappingsResponse(
   };
 }
 
-/** Merges an incoming subset over the existing set (POST / upsert semantics). */
+/**
+ * Merges an incoming subset over the existing set (POST / upsert semantics).
+ *
+ * `cleared` carries the keys a request mapped to themselves, which
+ * `validateMappings` separates out. Pass it through, or a request that asks to
+ * clear a binding will silently leave the old one in place — the identity
+ * mapping never reaches the `from === to` branch below, because validation
+ * removed it first.
+ */
 export function mergeMappings(
   existing: readonly KeyMapping[],
   incoming: readonly KeyMapping[],
+  cleared: readonly number[] = [],
 ): readonly KeyMapping[] {
   const merged = new Map(existing.map((m) => [m.from, m.to]));
+  for (const from of cleared) merged.delete(from);
   for (const { from, to } of incoming) {
     if (from === to) merged.delete(from);
     else merged.set(from, to);

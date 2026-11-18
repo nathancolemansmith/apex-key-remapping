@@ -31,6 +31,7 @@ flowchart TD
         DOC --> GEN
         GEN --> JSON["keys.json<br/><i>language-neutral</i>"]
         GEN --> TSMOD["catalog.generated.ts<br/><i>typed module</i>"]
+        GEN --> CSSEED["CatalogSeed.g.cs<br/><i>C# constants</i>"]
     end
 
     subgraph shared ["packages/hid-catalog"]
@@ -40,7 +41,8 @@ flowchart TD
     subgraph apps ["apps/"]
         PKG -->|npm symlink| SL["api-serverless<br/>TypeScript + DynamoDB"]
         PKG -->|npm symlink| WEB["web<br/>React client"]
-        JSON -.->|seed data for migration| NET["api-dotnet<br/>C# + SQLite"]
+        CSSEED -->|EF Core HasData| MIG["migration<br/><i>committed, frozen</i>"]
+        MIG --> NET["api-dotnet<br/>C# + SQLite"]
     end
 
     WEB -->|HTTP| SL
@@ -50,13 +52,14 @@ flowchart TD
     DOC -.->|re-parsed every test run| DRIFT
     JSON -.-> DRIFT
     TSMOD -.-> DRIFT
+    CSSEED -.-> DRIFT
 
     classDef generated fill:#fff3e0,stroke:#e77a4b,stroke-width:2px,color:#15202b
     classDef source fill:#e3f2fd,stroke:#1976d2,color:#15202b
     classDef seam fill:#fce4ec,stroke:#c2185b,stroke-dasharray:5 3,color:#15202b
     classDef guard fill:#e8f5e9,stroke:#388e3c,color:#15202b
-    class JSON,TSMOD generated
-    class DOC,GEN,PKG,SL,WEB source
+    class JSON,TSMOD,CSSEED generated
+    class DOC,GEN,PKG,SL,WEB,MIG source
     class NET seam
     class DRIFT guard
 ```
@@ -76,14 +79,21 @@ apex-key-remapping/
 ├── package-lock.json             Single lockfile for every JS workspace
 ├── .gitignore
 ├── .vscode/
-│   └── settings.json             Peacock colour (SteelSeries orange), committed deliberately
+│   └── settings.json             Peacock color (SteelSeries orange), committed deliberately
 │
 ├── packages/
 │   ├── api-contract/             Canonical OpenAPI document both backends answer to
 │   └── hid-catalog/              Shared domain: the key catalog and remapping rules
 │
+├── postman/                      GENERATED collection + environment
+│
+├── global.json                   Declares the minimum .NET SDK
 ├── apps/
-│   ├── api-dotnet/               ASP.NET Core 10 + SQLite  (not yet built)
+│   ├── api-dotnet/               ASP.NET Core 10 + SQLite
+│   │   ├── Apex.KeyMapping.sln
+│   │   ├── .config/              Local dotnet-ef tool manifest
+│   │   ├── Apex.KeyMapping.Api/
+│   │   └── Apex.KeyMapping.Api.Tests/
 │   ├── api-serverless/           TypeScript Lambda + DynamoDB  (not yet built)
 │   └── web/                      React client  (not yet built)
 │
@@ -92,9 +102,39 @@ apex-key-remapping/
     └── workflows/                Build, test, deploy  (not yet built)
 ```
 
-Only the two packages exist today. The rest are in the
-[roadmap](README.md#roadmap); `apps/` and `.github/workflows/` are present but
-empty, and `infra/` has not been created yet.
+The two packages and the .NET API exist today. The rest are in the
+[roadmap](README.md#roadmap); `apps/api-serverless`, `apps/web` and
+`.github/workflows/` are empty, and `infra/` has not been created yet.
+
+### Inside `apps/api-dotnet`
+
+```
+Apex.KeyMapping.Api/
+├── Program.cs                    Composition root; migrates on startup
+├── Domain/                       The remapping rules, reimplemented in C#
+│   ├── HidCode.cs                Parsing and hex rendering
+│   ├── Keyboard.cs               Read model loaded from the database
+│   └── MappingValidator.cs       Validation and merge semantics
+├── Data/
+│   ├── Entities.cs               The four tables
+│   ├── ApexDbContext.cs          Schema, composite keys, HasData seeding
+│   ├── CatalogSeed.g.cs          GENERATED — the 92 keys as C# constants
+│   └── Migrations/               Committed and frozen
+├── Contracts/                    Response shapes and RFC 9457 problems
+├── Endpoints/MappingEndpoints.cs The seven operations
+└── Identity/IOwnerAccessor.cs    The seam Cognito plugs into
+```
+
+The split that matters is `Domain/` knowing nothing about EF Core or HTTP.
+`MappingValidator` takes a `Keyboard` read model and a `JsonElement` and
+returns a result; it never touches a `DbContext`. That is what lets the
+validation rules be compared against the TypeScript original without a
+database in the picture.
+
+[apps/api-dotnet/REPOSITORY.md](apps/api-dotnet/REPOSITORY.md) covers that
+project on its own terms — dependency injection, minimal APIs, EF Core
+migrations and the project's conventions — written to be readable without prior
+.NET experience.
 
 ## What goes where
 
@@ -400,6 +440,40 @@ API is finished when it passes the same suite the .NET API passes.
 This lands with the .NET API in roadmap step 2 — there is nothing to point it
 at yet, and a permanently skipped test suite is worse than an absent one.
 
+### The Postman collection
+
+[`postman/`](postman) is a third derived artifact, generated from the same
+document by
+[`generate-postman.mjs`](packages/api-contract/generate-postman.mjs). Routes,
+methods, descriptions and request bodies all come out of `openapi.yaml`, so a
+contract change regenerates the collection rather than leaving a second,
+quietly diverging description of the API.
+
+What is deliberately **not** derived is the assertions. A plain
+OpenAPI-to-Postman conversion produces an API browser — requests you can fire,
+with nothing checking the answers. The test scripts are hand-written, and the
+scenario folder is an ordered walk through the behavior the brief asks for:
+apply the brief's mappings, read the layout back, confirm a second user sees
+nothing, clear a binding by self-mapping it, confirm an invalid remap is
+rejected with every error at once and changes nothing.
+
+```bash
+npm run postman:generate
+npm run postman:test        # newman, against a running API
+```
+
+Since every request targets `{{baseUrl}}`, pointing it at the serverless
+implementation later is an environment change. That makes it a usable first
+version of the conformance suite above, available well before the second
+backend exists.
+
+> It earned its place immediately: on its first run it caught the .NET API
+> serializing `"errors": null` on a 404, where the contract declares `errors`
+> as an array present only on validation failures. The serverless
+> implementation, written from the same document, would have omitted the field
+> — so the two backends would have disagreed on a response shape that
+> everything else said was identical.
+
 ### What runs today
 
 [`validate.mjs`](packages/api-contract/validate.mjs) checks the canonical
@@ -437,6 +511,8 @@ All from the repository root.
 | `npm install` | Links every JS workspace, one lockfile |
 | `npm test` | Tests across JS workspaces — 37 domain tests, plus contract validation |
 | `npm run contract:validate` | Checks `openapi.yaml` against itself and the catalog |
+| `npm run postman:generate` | Regenerates the Postman collection from the contract |
+| `npm run postman:test` | Runs the collection against a running API via `newman` |
 | `npm run build` | Builds every JS workspace that defines a build |
 | `npm run lint` | Lints every JS workspace that defines a lint |
 | `npm run test:dotnet` | `dotnet test apps/api-dotnet` |
@@ -541,6 +617,11 @@ whether it is remapped or not.
 `package.json` named `@apex/<name>`, add it to the root `workspaces` array if
 it is not covered by `packages/*`, and give it `build`, `test` and `lint`
 scripts so the root commands pick it up. Then `npm install` at the root.
+
+**Changing the contract also regenerates the collection.** After editing
+`openapi.yaml`, run `npm run postman:generate`. Never hand-edit anything under
+`postman/` — it is generated output, and Postman's own "export" would
+overwrite the structure the generator produces.
 
 **Adding keys or a keyboard model.** Edit `HidKeyCodes.md`, run
 `npm run catalog:generate`, and add a .NET migration inserting the new rows.

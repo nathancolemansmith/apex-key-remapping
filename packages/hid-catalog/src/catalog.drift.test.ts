@@ -69,4 +69,31 @@ describe("catalog drift", () => {
     expect(apex.keys).toHaveLength(92);
     expect(apex.name).toBe("Apex Pro Gen 3");
   });
+
+  /**
+   * The .NET project cannot import this package, so it gets the catalog as
+   * generated C# constants instead. That is the one place the two backends
+   * could silently disagree about which keys exist, which is exactly what the
+   * API contract promises they never do.
+   */
+  it("matches the generated C# seed the .NET migration is built from", () => {
+    const seedPath = join(repoRoot, "apps", "api-dotnet", "Apex.KeyMapping.Api", "Data", "CatalogSeed.g.cs");
+    const source = readFileSync(seedPath, "utf8");
+
+    const seeded = [...source.matchAll(/^\s*\(0x([0-9A-F]{2}),\s*"((?:[^"\\]|\\.)*)",\s*"([^"]+)"\),$/gm)].map(
+      (m) => ({
+        hidCode: Number.parseInt(m[1]!, 16),
+        name: m[2]!.replace(/\\(.)/g, "$1"),
+        category: m[3]!,
+      }),
+    );
+
+    const apex = catalog.keyboards.find((k) => k.slug === "apex-pro-gen-3")!;
+    expect(seeded).toEqual(apex.keys.map(({ hidCode, name, category }) => ({ hidCode, name, category })));
+
+    // The migration pins the model row by id, so the identity has to match too.
+    expect(source).toContain(`public const string Slug = "${apex.slug}";`);
+    expect(source).toContain(`public const string Name = "${apex.name}";`);
+    expect(source).toContain(`public const string Vendor = "${apex.vendor}";`);
+  });
 });

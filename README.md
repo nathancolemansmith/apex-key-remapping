@@ -18,9 +18,12 @@ The same API is implemented **twice** against one shared domain contract:
 A React client in [`apps/web`](apps/web) exercises either backend so the two can
 be compared side by side against identical requests.
 
-> **Status:** iterative build. The shared domain rules are complete and tested.
-> Next up is the .NET API, then the React client to exercise it end to end,
-> then the serverless implementation. See [Roadmap](#roadmap).
+> **Status:** iterative build. The shared domain, the OpenAPI contract and the
+> **.NET API are complete and tested** — it runs, persists to SQLite, and
+> enforces per-user isolation. Authentication is the next step: until then the
+> caller is identified by a development header rather than a Cognito token, so
+> the sections below describing JWT validation describe the destination, not
+> today. See [Roadmap](#roadmap).
 
 ---
 
@@ -58,6 +61,8 @@ where trust is established — are the point of having both.
 [REPOSITORY.md](REPOSITORY.md) covers the monorepo in detail — what belongs in
 each directory, how the npm workspace is wired, where the .NET project sits
 outside it, and diagrams of the catalog generation and request flows.
+[apps/api-dotnet/REPOSITORY.md](apps/api-dotnet/REPOSITORY.md) does the same
+for the .NET project, written to be readable without prior .NET experience.
 
 ## Data model
 
@@ -167,6 +172,13 @@ assessment document, so a silent divergence between the two implementations
 fails the build.
 
 ## Authentication
+
+> **Not yet built.** This section describes the destination. Today every
+> `/api` route resolves its caller through the same `IOwnerAccessor` seam
+> described below, but the implementation behind it reads an `X-Dev-User`
+> header instead of validating a token. Ownership, isolation and the 401 path
+> are real and tested; the identity behind them is not yet verified. Swapping
+> in Cognito is a registration change in `Program.cs` and touches no endpoint.
 
 Every `/api` route requires a bearer token from an **AWS Cognito** user pool.
 The user is never named in a request body or URL — identity comes from the
@@ -363,36 +375,73 @@ used.
 
 ```bash
 npm install
-npm test                  # shared domain tests
+npm test                  # shared domain + contract validation
+npm run test:dotnet       # .NET unit and integration tests
 ```
 
 ### The .NET API
 
 Migrations are applied automatically on startup, so the first run creates
 `apex.db`, seeds the 92 keys, and the database then persists between runs as
-the brief requires. No AWS account or Cognito pool is needed — the dev issuer
-runs in-process.
+the brief requires. No AWS account is needed.
 
 ```bash
 npm run dev:dotnet        # or: dotnet run --project apps/api-dotnet/Apex.KeyMapping.Api
 ```
 
-Mint a dev token and remap Caps Lock to Left Ctrl:
+Remap Caps Lock to Left Ctrl, then read the layout back:
 
 ```bash
-TOKEN=$(curl -s localhost:5080/dev/token?user=alice | jq -r .access_token)
-
 curl -X POST localhost:5080/api/keyboards/apex-pro-gen-3/mappings \
-  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"mappings":[{"from":"0x39","to":"0xE0"}]}'
 
-curl -s localhost:5080/api/keyboards/apex-pro-gen-3/mappings \
-  -H "Authorization: Bearer $TOKEN" | jq '.remappedCount'
+curl -s localhost:5080/api/keyboards/apex-pro-gen-3/mappings | jq '.remappedCount'
 ```
 
-Repeat the `GET` with a token for `bob` and it reports `0` — same database,
-different owner.
+Until Cognito lands, the caller is identified by an `X-Dev-User` header that
+defaults to `alice`, so the commands above work with no ceremony. Per-user
+isolation is demonstrable by naming someone else — same database, different
+owner, different answer:
+
+```bash
+curl -s localhost:5080/api/keyboards/apex-pro-gen-3/mappings \
+  -H 'X-Dev-User: bob' | jq '.remappedCount'      # 0
+```
+
+The brief's own example, end to end:
+
+```bash
+curl -X POST localhost:5080/api/keyboards/apex-pro-gen-3/mappings \
+  -H 'Content-Type: application/json' \
+  -d '{"mappings":[{"from":"0x04","to":"0x1D"},{"from":"0x21","to":"0x1F"}]}'
+```
+
+`{keyboard}` also accepts the display name, so
+`localhost:5080/api/keyboards/Apex%20Pro%20Gen%203/mappings` resolves to the
+same keyboard.
+
+### Postman
+
+[`postman/`](postman) holds a collection and a local environment, both
+generated from the OpenAPI contract so they cannot drift from it. Import both
+files, or run the collection headlessly against a running API:
+
+```bash
+npm run postman:generate   # after any contract change
+npm run postman:test       # runs the end-to-end scenario via newman
+```
+
+The collection is more than a set of example requests. Alongside one folder
+per operation there is a **scenario folder** that runs in order and asserts
+the answers: it applies the brief's own mappings, reads back the full layout,
+checks a second user sees nothing, clears one binding by self-mapping it,
+confirms an invalid remap is rejected with every error at once and changes
+nothing, and cleans up. 19 requests, 38 assertions.
+
+Because every request targets `{{baseUrl}}`, the same collection runs against
+either implementation — which makes it a cheap first version of the
+cross-backend conformance suite in step 4 of the roadmap.
 
 To inspect or reset the database:
 
@@ -407,9 +456,9 @@ Per-app instructions live in each app's README as it lands.
 
 1. [x] Shared domain rules and seed generation, with drift tests
 2. [x] Canonical OpenAPI contract, validated against the domain catalog
-3. [ ] ASP.NET Core 10 API: EF Core schema + seed migration, SQLite, integration tests
+3. [x] ASP.NET Core 10 API: EF Core schema + seed migration, SQLite, integration tests
 4. [ ] Conformance suite + build-time OpenAPI diff against the canonical contract
-5. [ ] Cognito JWT validation + local dev issuer, per-user keyboard ownership
+5. [ ] Cognito JWT validation + local dev issuer, replacing the `X-Dev-User` seam
 6. [ ] React client with Cognito Hosted UI, pointed at the .NET API
 7. [ ] TypeScript serverless API with DynamoDB, passing the same conformance suite
 8. [ ] AWS CDK infrastructure, including the Cognito user pool
