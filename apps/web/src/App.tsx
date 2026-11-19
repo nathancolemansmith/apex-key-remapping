@@ -9,6 +9,7 @@ import {
   cognito,
   DEFAULT_KEYBOARD,
   loadBackend,
+  originOf,
   rememberBackend,
   type Backend,
 } from "./config.js";
@@ -269,8 +270,10 @@ function BackendToggle({
           );
         })}
       </div>
-      <span className="text-body-secondary mt-1" style={{ fontSize: "0.68rem" }}>
+      <span className="text-body-secondary mt-1 text-center" style={{ fontSize: "0.68rem" }}>
         {current.detail}
+        <br />
+        <span className="font-monospace opacity-75">{originOf(current)}</span>
       </span>
     </div>
   );

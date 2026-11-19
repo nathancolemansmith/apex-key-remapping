@@ -16,10 +16,9 @@
     "catalog:generate": "node packages/hid-catalog/generate.mjs",
     "contract:validate": "npm run validate -w @apex/api-contract",
     "postman:generate": "node packages/api-contract/generate-postman.mjs",
-    "postman:test": "npx --yes newman run postman/apex-key-remapping.postman_collection.json -e postman/local.postman_environment.json --folder 'Scenario — the brief, end to end'",
+    "postman:test": "npx --yes newman run postman/apex-key-remapping.postman_collection.json -e postman/local.postman_environment.json --folder 'Scenario \u2014 the brief, end to end'",
     "build": "npm run build --workspaces --if-present",
-
-    "//catalog": "Most workspaces import @apex/hid-catalog, which resolves to its dist/ output. dist/ is gitignored, so a fresh checkout has the workspace symlink and nothing behind it. Building it here means no caller — script, workflow or person — has to remember.",
+    "//catalog": "Most workspaces import @apex/hid-catalog, which resolves to its dist/ output. dist/ is gitignored, so a fresh checkout has the workspace symlink and nothing behind it. Building it here means no caller \u2014 script, workflow or person \u2014 has to remember.",
     "pretest": "npm run build -w @apex/hid-catalog",
     "test": "npm run test --workspaces --if-present",
     "prelint": "npm run build -w @apex/hid-catalog",
@@ -27,7 +26,8 @@
     "test:dotnet": "dotnet test apps/api-dotnet",
     "dev:serverless": "npm run dev -w @apex/api-serverless",
     "dev:dotnet": "dotnet run --project apps/api-dotnet/Apex.KeyMapping.Api",
-    "dev:web": "npm run dev -w @apex/web"
+    "dev:web": "npm run dev -w @apex/web",
+    "dev:ddb": "docker run --rm -p 8000:8000 --name apex-ddb amazon/dynamodb-local"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

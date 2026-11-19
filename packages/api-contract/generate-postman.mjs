@@ -503,6 +503,7 @@ writeFileSync(collectionPath, `${JSON.stringify(collection, null, 2)}\n`);
 // them back with `aws cloudformation describe-stacks`.
 const environments = [
   ["local.postman_environment.json", "Apex — local .NET", "http://localhost:5080"],
+  ["local-serverless.postman_environment.json", "Apex — local serverless", "http://localhost:3000"],
   ["dotnet.postman_environment.json", "Apex — deployed .NET", "https://d3isop0e6bhby8.cloudfront.net"],
   [
     "serverless.postman_environment.json",

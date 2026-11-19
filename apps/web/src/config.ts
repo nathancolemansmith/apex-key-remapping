@@ -78,3 +78,20 @@ export function loadBackend(): Backend {
 export function rememberBackend(backend: Backend): void {
   localStorage.setItem(STORAGE_KEY, backend.id);
 }
+
+/**
+ * Where requests actually go, for display.
+ *
+ * Shown in the UI because the answer is not obvious and getting it wrong is
+ * silent: a stale `VITE_SERVERLESS_API_URL` pointing at the deployed stack
+ * means a local session quietly reads and writes production data while
+ * looking exactly like local development.
+ */
+export function originOf(backend: Backend): string {
+  if (!backend.baseUrl) return `${window.location.host} (same origin)`;
+  try {
+    return new URL(backend.baseUrl).host;
+  } catch {
+    return backend.baseUrl;
+  }
+}

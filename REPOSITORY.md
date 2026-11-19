@@ -94,17 +94,17 @@ apex-key-remapping/
 │   │   ├── .config/              Local dotnet-ef tool manifest
 │   │   ├── Apex.KeyMapping.Api/
 │   │   └── Apex.KeyMapping.Api.Tests/
-│   ├── api-serverless/           TypeScript Lambda + DynamoDB  (not yet built)
-│   └── web/                      React client  (not yet built)
+│   ├── api-serverless/           TypeScript Lambda + DynamoDB
+│   └── web/                      React client, Vite + Bootstrap
 │
-├── infra/                        AWS CDK stacks  (not yet built)
+├── infra/                        AWS CDK stacks (5)
 └── .github/
-    └── workflows/                Build, test, deploy  (not yet built)
+    └── workflows/                One deploy pipeline per stack
 ```
 
-The two packages and the .NET API exist today. The rest are in the
-[roadmap](README.md#roadmap); `apps/api-serverless`, `apps/web` and
-`.github/workflows/` are empty, and `infra/` has not been created yet.
+Everything here exists and is deployed. See
+[Running locally](README.md#running-locally) to start the whole stack on your
+machine, and [Deployed](README.md#deployed) for what runs in AWS.
 
 ### Inside `apps/api-dotnet`
 

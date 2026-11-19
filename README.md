@@ -369,14 +369,45 @@ either state.
 
 ## Running locally
 
-Requires Node 22+ and the .NET 10 SDK. No licensed third-party packages are
-used.
+| Needed for | | |
+|---|---|---|
+| Everything | **Node 22+** | |
+| The .NET API | **.NET 10 SDK** | `global.json` declares the minimum |
+| The serverless API | **Docker** | runs DynamoDB Local |
+
+No licensed third-party packages are used, and no AWS account is required.
 
 ```bash
 npm install
-npm test                  # shared domain + contract validation
+npm test                  # shared domain, contract, serverless handler, layout
 npm run test:dotnet       # .NET unit and integration tests
 ```
+
+### The whole stack
+
+Four terminals. Each part is independently useful — start only what you need.
+
+```bash
+npm run dev:ddb           # DynamoDB Local in Docker, for the serverless API
+npm run dev:serverless    # http://localhost:3000
+npm run dev:dotnet        # http://localhost:5080
+npm run dev:web           # http://localhost:5173
+```
+
+Then open <http://localhost:5173> and sign in through the Cognito hosted UI.
+The **backend toggle** in the header switches the client between the two
+implementations; the origin it is talking to is printed underneath it, so
+there is never a question of which one answered.
+
+Configuration is committed in [`apps/web/.env`](apps/web/.env), so there is no
+setup step. Nothing in it is secret — a Cognito hosted-UI domain and a public
+app client id, both of which any browser performing the login can see, which
+is exactly why the client uses PKCE rather than a client secret. Personal
+overrides go in `apps/web/.env.local`, which stays ignored.
+
+> Signing in locally still uses the **real** Cognito pool, because that is the
+> one part of the flow with nothing to stand in for it. Everything else —
+> both APIs, both datastores — runs on your machine.
 
 ### The .NET API
 
@@ -398,10 +429,15 @@ curl -X POST localhost:5080/api/keyboards/apex-pro-gen-3/mappings \
 curl -s localhost:5080/api/keyboards/apex-pro-gen-3/mappings | jq '.remappedCount'
 ```
 
-Until Cognito lands, the caller is identified by an `X-Dev-User` header that
-defaults to `alice`, so the commands above work with no ceremony. Per-user
-isolation is demonstrable by naming someone else — same database, different
-owner, different answer:
+Those commands carry no token, and they work — because with no
+`Auth:Authority` configured the API falls back to identifying the caller by an
+`X-Dev-User` header that defaults to `alice`. That is a development
+convenience, not authentication, and it is only registered outside Production;
+anywhere else the same requests answer 401. The deployed API validates real
+Cognito tokens.
+
+Per-user isolation is demonstrable by naming someone else — same database,
+different owner, different answer:
 
 ```bash
 curl -s localhost:5080/api/keyboards/apex-pro-gen-3/mappings \
@@ -449,25 +485,74 @@ dotnet ef migrations list --project apps/api-dotnet/Apex.KeyMapping.Api
 rm apps/api-dotnet/Apex.KeyMapping.Api/apex.db    # next run re-creates and re-seeds
 ```
 
-Per-app instructions live in each app's README as it lands.
+### The serverless API
+
+The handler is a pure function from an API Gateway event to a response, so it
+runs anywhere. What AWS supplies in production is three things, and a dev
+server stands in for them: the HTTP-to-event translation API Gateway performs,
+the verified `sub` the JWT authorizer attaches, and DynamoDB itself.
+
+```bash
+npm run dev:ddb          # DynamoDB Local in Docker, in another terminal
+npm run dev:serverless   # http://localhost:3000
+```
+
+The table is created on first run, so there is no setup step. Identity comes
+from a bearer token — decoded, **not verified** — or from `X-Dev-User`, the
+same header the .NET API accepts in development, so the two local experiences
+match.
+
+> That stand-in is the honest limit of running this locally: it proves the
+> handler is correct, not that authentication is. Verification only happens
+> for real at the API Gateway edge, which is also why the serverless
+> implementation has no JWKS code to test — there is nothing to test.
+
+The same Postman collection passes **38 assertions** against the local server,
+both deployments, and the local .NET API. Four environments ship in
+[`postman/`](postman) for exactly that reason:
+
+| Environment | Points at |
+|---|---|
+| `local.postman_environment.json` | `localhost:5080` — the .NET API |
+| `local-serverless.postman_environment.json` | `localhost:3000` — the dev server |
+| `dotnet.postman_environment.json` | The deployed .NET API, via CloudFront |
+| `serverless.postman_environment.json` | The deployed serverless API |
+
+Each needs a `password` filling in; it is the one value deliberately left
+blank. [apps/api-dotnet/REPOSITORY.md](apps/api-dotnet/REPOSITORY.md) covers
+the .NET project in depth, including for readers new to .NET.
 
 ## Deployed
 
-The .NET API runs in AWS, described entirely by CDK in [`infra/`](infra).
-Three stacks, split by lifecycle rather than convenience:
+Everything runs in AWS, described entirely by CDK in [`infra/`](infra). Five
+stacks, split by lifecycle rather than convenience:
 
 | Stack | What | Why separate |
 |---|---|---|
 | `ApexIdentity` | Cognito user pool, app client, hosted UI domain | Accounts must outlive any backend |
 | `ApexDotnetApi` | VPC, EFS, ECS Fargate, ALB | The expensive one — `cdk destroy` stops the billing without losing users |
+| `ApexServerlessApi` | Lambda, DynamoDB, HTTP API with a JWT authorizer | Bills per request; deploys independently of the .NET one |
+| `ApexWeb` | S3 bucket and the CloudFront distribution fronting both it and the .NET API | A CSS change should not redeploy a Fargate service |
 | `ApexGithubDeploy` | OIDC provider and the deploy role | Deployed by hand; the pipeline cannot create its own access |
 
-Pushing to `main` redeploys when `apps/api-dotnet/**`, `infra/**` or
-`packages/**` change. The pipeline runs every test lane, diffs the API's
-generated OpenAPI document against the canonical contract, assumes a role via
-OIDC with no stored AWS key, deploys, and then smoke-tests that `/health`
-answers **and that `/api/keyboards` returns 401 without a token** — a green
-deploy serving data to anonymous callers is worse than a failed one.
+### How a deploy happens
+
+Four workflows, one per stack, each triggered by the paths it owns. Every one
+deploys `--exclusively`, so a push that touches shared code does not have
+three pipelines racing to update the same CloudFormation stack.
+
+| Workflow | Fires on | Deploys |
+|---|---|---|
+| `deploy-identity` | `shared-identity-stack.ts`, `bin/infra.ts` | `ApexIdentity` |
+| `deploy-dotnet` | `apps/api-dotnet/**`, `infra/**`, `packages/**` | `ApexDotnetApi` |
+| `deploy-serverless` | `apps/api-serverless/**`, `packages/**` | `ApexServerlessApi` |
+| `deploy-web` | `apps/web/**`, `packages/hid-catalog/**` | `ApexWeb` |
+
+Each runs the relevant test lanes first, assumes a role via OIDC with no
+stored AWS key, deploys, and then smoke-tests that `/health` answers **and
+that `/api/keyboards` returns 401 without a token** — a green deploy serving
+data to anonymous callers is worse than a failed one. The .NET pipeline also
+diffs the API's generated OpenAPI document against the canonical contract.
 
 ### The web client
 

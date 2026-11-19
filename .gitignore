@@ -42,6 +42,14 @@ cdk.context.json
 .env
 .env.*
 !.env.example
+
+# One exception: the web client's defaults are committed so a reviewer can
+# clone and run without a setup step. Nothing in it is secret — a Cognito
+# domain and a public client id, both visible to any browser that logs in,
+# plus localhost URLs. The negation is scoped to that one path, so every
+# other .env anywhere in the tree stays ignored. Personal overrides go in
+# apps/web/.env.local, which is still ignored.
+!apps/web/.env
 *.pem
 
 # ---- Editor / OS ----
