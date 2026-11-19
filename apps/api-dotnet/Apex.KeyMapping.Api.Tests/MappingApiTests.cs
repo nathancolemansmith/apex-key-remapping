@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Apex.KeyMapping.Api.Identity;
 
 namespace Apex.KeyMapping.Api.Tests;
 
@@ -336,6 +337,75 @@ public sealed class MappingApiTests : IClassFixture<ApiFactory>
 
         var names = body.EnumerateObject().Select(p => p.Name).Order().ToArray();
         Assert.Equal(["detail", "status", "title", "type"], names);
+    }
+
+    /// <summary>
+    /// Locally the client still signs in against the real Cognito pool, so the
+    /// API has to take identity from the token rather than collapsing every
+    /// caller onto one owner. Without this, signing in as yourself showed
+    /// someone else's layout and per-user isolation could not be exercised
+    /// locally at all.
+    /// </summary>
+    [Fact]
+    public async Task Development_identity_comes_from_the_token_when_there_is_one()
+    {
+        var sub = $"cognito-{Guid.NewGuid():N}";
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", FakeJwtFor(sub));
+
+        await client.PostAsync(Route, Mappings((A, Z)));
+
+        // A second client presenting the same subject sees that layout...
+        var same = _factory.CreateClient();
+        same.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", FakeJwtFor(sub));
+        Assert.Equal(1, (await ReadJson(await same.GetAsync(Route))).GetProperty("remappedCount").GetInt32());
+
+        // ...and a different subject does not.
+        var other = _factory.CreateClient();
+        other.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", FakeJwtFor($"other-{Guid.NewGuid():N}"));
+        Assert.Equal(0, (await ReadJson(await other.GetAsync(Route))).GetProperty("remappedCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task An_explicit_dev_user_header_beats_the_token()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentOwnerAccessor.HeaderName, "scripted");
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", FakeJwtFor("ignored-subject"));
+
+        await client.PostAsync(Route, Mappings((A, Z)));
+
+        var byHeader = _factory.CreateClientFor("scripted");
+        Assert.Equal(1, (await ReadJson(await byHeader.GetAsync(Route))).GetProperty("remappedCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_malformed_token_falls_back_rather_than_failing()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "not.a.jwt");
+
+        // Falls through to the default user, so a bad header cannot break
+        // local work with a confusing 401.
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(Route)).StatusCode);
+    }
+
+    /// <summary>
+    /// An unsigned token carrying one claim. Enough for the development
+    /// accessor, which decodes rather than verifies.
+    /// </summary>
+    private static string FakeJwtFor(string sub)
+    {
+        static string Encode(string json) =>
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json))
+                .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+        return $"{Encode("{\"alg\":\"none\"}")}.{Encode($"{{\"sub\":\"{sub}\"}}")}.signature";
     }
 
     [Fact]
