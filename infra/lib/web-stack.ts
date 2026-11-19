@@ -1,5 +1,6 @@
+import { existsSync } from "node:fs";
 import * as path from "node:path";
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
+import { Annotations, CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import type * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
@@ -103,13 +104,34 @@ export class WebStack extends Stack {
 
     // Uploads apps/web/dist and invalidates the cache, so a deploy is visible
     // immediately rather than after the TTL expires.
-    new s3deploy.BucketDeployment(this, "Deploy", {
-      sources: [s3deploy.Source.asset(path.join(__dirname, "..", "..", "apps", "web", "dist"))],
-      destinationBucket: bucket,
-      distribution: this.distribution,
-      distributionPaths: ["/*"],
-      prune: true,
-    });
+    //
+    // Guarded because CDK constructs every stack in the app on every synth,
+    // including when only the API is being deployed. An unguarded
+    // `Source.asset` on a missing directory throws `CannotFindAsset` and takes
+    // down deploys that have nothing to do with the client.
+    //
+    // Skipping rather than substituting a placeholder is deliberate: leaving
+    // the bucket untouched keeps the current site serving, where uploading a
+    // stub would replace a working deployment with an empty one. The web
+    // pipeline always builds first, so in CI the directory is always there.
+    const bundle = path.join(__dirname, "..", "..", "apps", "web", "dist");
+
+    if (existsSync(path.join(bundle, "index.html"))) {
+      new s3deploy.BucketDeployment(this, "Deploy", {
+        sources: [s3deploy.Source.asset(bundle)],
+        destinationBucket: bucket,
+        distribution: this.distribution,
+        distributionPaths: ["/*"],
+        prune: true,
+      });
+    } else {
+      Annotations.of(this).addWarningV2(
+        "apex:web-bundle-missing",
+        `No built client at ${bundle}, so its contents are not being uploaded. ` +
+          `Run 'npm run build -w @apex/web' first if you meant to deploy the client. ` +
+          `Whatever is already in the bucket keeps serving.`,
+      );
+    }
 
     new CfnOutput(this, "WebUrl", {
       value: `https://${this.distribution.distributionDomainName}`,

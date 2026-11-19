@@ -46,6 +46,14 @@ jobs:
 
       - run: npm ci
 
+      # @apex/web imports @apex/hid-catalog, whose package.json points `types`
+      # and `main` at dist/. dist/ is gitignored, so a fresh checkout has the
+      # workspace symlink but nothing behind it — every import fails with
+      # "Cannot find module". Nothing else in this workflow builds it, and it
+      # worked locally only because a previous build was still on disk.
+      - name: Build the shared domain package
+        run: npm run build -w @apex/hid-catalog
+
       - name: Typecheck
         run: npm run lint -w @apex/web
 
