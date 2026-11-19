@@ -71,7 +71,7 @@ jobs:
 
       - name: Deploy
         working-directory: infra
-        run: npx cdk deploy ApexServerlessApi --require-approval never
+        run: npx cdk deploy ApexServerlessApi --exclusively --require-approval never
 
       - name: Smoke test
         run: |

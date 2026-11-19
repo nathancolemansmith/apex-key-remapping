@@ -114,7 +114,7 @@ jobs:
       # visible immediately rather than when the cache TTL happens to lapse.
       - name: Deploy
         working-directory: infra
-        run: npx cdk deploy ApexWeb --require-approval never
+        run: npx cdk deploy ApexWeb --exclusively --require-approval never
 
       - name: Verify the deployment
         run: |

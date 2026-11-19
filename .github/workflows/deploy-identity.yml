@@ -1,0 +1,98 @@
+# Deploys the shared Cognito user pool.
+#
+# Its own workflow because identity is a shared resource with its own
+# lifecycle. Previously each API workflow deployed it as a CDK dependency,
+# which meant three pipelines racing to update one CloudFormation stack on
+# every push — the losers failed with "ChangeSet does not exist". The API
+# workflows now deploy `--exclusively`, so this is the only thing that
+# touches the pool.
+#
+# Deploying identity is also the riskiest change in the repository: this stack
+# owns the callback allow-list, and CloudFormation sets that list to exactly
+# what the template declares. A template missing an origin does not leave it
+# alone — it removes it, and login breaks. The verification step below exists
+# because that has happened.
+name: Deploy identity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/lib/shared-identity-stack.ts"
+      - "infra/bin/infra.ts"
+      - ".github/workflows/deploy-identity.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-identity
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    name: Deploy Cognito
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-identity-${{ github.run_id }}
+
+      # Shown before anything changes, so a deploy that would drop a callback
+      # URL is visible in the log rather than discovered by a user who cannot
+      # sign in.
+      - name: Show what the deploy would change
+        working-directory: infra
+        run: npx cdk diff ApexIdentity --exclusively || true
+
+      - name: Deploy
+        working-directory: infra
+        run: npx cdk deploy ApexIdentity --exclusively --require-approval never
+
+      - name: Verify the deployed client still allows every origin we serve
+        run: |
+          pool=$(aws cloudformation describe-stacks --stack-name ApexIdentity \
+            --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
+          client=$(aws cloudformation describe-stacks --stack-name ApexIdentity \
+            --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text)
+
+          callbacks=$(aws cognito-idp describe-user-pool-client \
+            --user-pool-id "$pool" --client-id "$client" \
+            --query 'UserPoolClient.CallbackURLs' --output text)
+
+          echo "Callback URLs: $callbacks"
+
+          # Whatever the web stack is actually serving has to be in the list,
+          # or the hosted UI refuses the redirect and login dies silently.
+          web=$(aws cloudformation describe-stacks --stack-name ApexWeb \
+            --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" \
+            --output text 2>/dev/null || true)
+
+          if [ -n "$web" ] && [ "$web" != "None" ]; then
+            case "$callbacks" in
+              *"$web/callback"*) echo "deployed client origin is allow-listed" ;;
+              *)
+                echo "::error::$web/callback is missing from the callback list — login is broken."
+                echo "::error::Set webOrigin in infra/bin/infra.ts to $web and redeploy."
+                exit 1
+                ;;
+            esac
+          fi

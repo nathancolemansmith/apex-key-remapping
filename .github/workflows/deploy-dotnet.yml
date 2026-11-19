@@ -125,11 +125,19 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: deploy-dotnet-${{ github.run_id }}
 
-      # Identity first: the API stack reads the user pool id from it, and a
-      # deploy that reversed this order would wire the API to nothing.
+      # `--exclusively`: deploy this stack and not its dependencies.
+      #
+      # Without it, CDK also deploys ApexIdentity — and so do the serverless
+      # and web workflows, which all trigger on the same push because they
+      # share path filters. Three concurrent CloudFormation operations on one
+      # stack, and the losers fail with "ChangeSet does not exist".
+      #
+      # Identity has its own workflow. It is a shared resource with its own
+      # lifecycle, so it should not be redeployed by every API that reads
+      # from it.
       - name: Deploy
         working-directory: infra
-        run: npx cdk deploy ApexIdentity ApexDotnetApi --require-approval never
+        run: npx cdk deploy ApexDotnetApi --exclusively --require-approval never
 
       - name: Report the live URL
         working-directory: infra
