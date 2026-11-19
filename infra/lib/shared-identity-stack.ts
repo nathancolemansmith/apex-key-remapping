@@ -16,12 +16,17 @@ export interface SharedIdentityStackProps extends StackProps {
    * Origin the deployed client is served from, e.g.
    * `https://d111111abcdef8.cloudfront.net`.
    *
-   * There is a circularity here worth naming: the client's origin does not
-   * exist until the web stack deploys, but Cognito must allow-list the
-   * callback before a login can succeed. Rather than hide that behind a
-   * custom resource, it is a deliberate two-step — deploy the web stack, then
-   * redeploy this one with `-c webOrigin=https://...`. Cognito rejects any
-   * redirect_uri not in this list, so the failure if you skip it is loud.
+   * There is a circularity worth naming: the client's origin does not exist
+   * until the web stack deploys, but Cognito must allow-list the callback
+   * before a login can succeed. It cannot be a cross-stack reference either —
+   * the dependency already runs identity → api → web, so reading back from
+   * web would be a cycle.
+   *
+   * So the value is supplied from outside, and **committed as the default in
+   * `bin/infra.ts` rather than passed as a context flag**. CloudFormation
+   * sets this list to exactly what the template declares, so a deploy that
+   * did not supply the origin silently removed it and broke login. Committing
+   * it means every deploy, including CI, produces the same list.
    */
   readonly webOrigin?: string;
 }

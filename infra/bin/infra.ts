@@ -31,11 +31,19 @@ const identity = new SharedIdentityStack(app, "ApexIdentity", {
   env,
   description: "Cognito user pool shared by both API implementations and the web client",
 
-  // Supplied on the second pass, once the web stack has a CloudFront domain:
-  //   npx cdk deploy ApexIdentity -c webOrigin=https://xxxx.cloudfront.net
-  ...(app.node.tryGetContext("webOrigin")
-    ? { webOrigin: app.node.tryGetContext("webOrigin") as string }
-    : {}),
+  // Committed rather than passed on the command line, because CloudFormation
+  // sets the client's callback list to exactly what the template says. A
+  // context flag is not persisted, so any deploy that forgot it — every CI
+  // run, for instance — silently reset the list and broke login until someone
+  // noticed.
+  //
+  // The distribution's domain is stable for its lifetime. If the web stack is
+  // ever destroyed and recreated, take the new `ApexWeb.WebUrl` output and
+  // update this line. `-c webOrigin=...` overrides for a different
+  // environment.
+  webOrigin:
+    (app.node.tryGetContext("webOrigin") as string | undefined) ??
+    "https://d3isop0e6bhby8.cloudfront.net",
 });
 
 const api = new DotnetApiStack(app, "ApexDotnetApi", {
