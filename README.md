@@ -18,12 +18,13 @@ The same API is implemented **twice** against one shared domain contract:
 A React client in [`apps/web`](apps/web) exercises either backend so the two can
 be compared side by side against identical requests.
 
-> **Status:** iterative build. The shared domain, the OpenAPI contract and the
-> **.NET API are complete and tested** — it runs, persists to SQLite, and
-> enforces per-user isolation. Authentication is the next step: until then the
-> caller is identified by a development header rather than a Cognito token, so
-> the sections below describing JWT validation describe the destination, not
-> today. See [Roadmap](#roadmap).
+> **Status:** the .NET API and the React client are **built, tested and
+> deployed**. The API runs on ECS Fargate behind an ALB, authenticates against
+> a real Cognito user pool, and keeps its SQLite database on EFS so it
+> survives container replacement. The client is served from S3 through
+> CloudFront, which also fronts the API so both share one origin. Both
+> redeploy from GitHub Actions on push to `main`. The serverless
+> implementation is still to come — see [Roadmap](#roadmap).
 
 ---
 
@@ -172,13 +173,6 @@ assessment document, so a silent divergence between the two implementations
 fails the build.
 
 ## Authentication
-
-> **Not yet built.** This section describes the destination. Today every
-> `/api` route resolves its caller through the same `IOwnerAccessor` seam
-> described below, but the implementation behind it reads an `X-Dev-User`
-> header instead of validating a token. Ownership, isolation and the 401 path
-> are real and tested; the identity behind them is not yet verified. Swapping
-> in Cognito is a registration change in `Program.cs` and touches no endpoint.
 
 Every `/api` route requires a bearer token from an **AWS Cognito** user pool.
 The user is never named in a request body or URL — identity comes from the
@@ -452,24 +446,113 @@ rm apps/api-dotnet/Apex.KeyMapping.Api/apex.db    # next run re-creates and re-s
 
 Per-app instructions live in each app's README as it lands.
 
+## Deployed
+
+The .NET API runs in AWS, described entirely by CDK in [`infra/`](infra).
+Three stacks, split by lifecycle rather than convenience:
+
+| Stack | What | Why separate |
+|---|---|---|
+| `ApexIdentity` | Cognito user pool, app client, hosted UI domain | Accounts must outlive any backend |
+| `ApexDotnetApi` | VPC, EFS, ECS Fargate, ALB | The expensive one — `cdk destroy` stops the billing without losing users |
+| `ApexGithubDeploy` | OIDC provider and the deploy role | Deployed by hand; the pipeline cannot create its own access |
+
+Pushing to `main` redeploys when `apps/api-dotnet/**`, `infra/**` or
+`packages/**` change. The pipeline runs every test lane, diffs the API's
+generated OpenAPI document against the canonical contract, assumes a role via
+OIDC with no stored AWS key, deploys, and then smoke-tests that `/health`
+answers **and that `/api/keyboards` returns 401 without a token** — a green
+deploy serving data to anonymous callers is worse than a failed one.
+
+### The web client
+
+[`apps/web`](apps/web) is a Vite + React + Bootstrap client served from a
+private S3 bucket through CloudFront. It signs in with the Cognito hosted UI
+using the authorization code flow with PKCE, written by hand rather than
+pulled from an OIDC library — the flow is about a hundred lines of Web Crypto,
+and for one provider that is easier to audit than a dependency.
+
+**One distribution serves both the client and the API**, which is three
+decisions in one:
+
+- Cognito permits plain HTTP callbacks only for `localhost`, so the client
+  must be on HTTPS. S3 website hosting is HTTP-only and cannot be the redirect
+  target.
+- An HTTPS page may not call an HTTP API, and the ALB has no certificate
+  because it has no domain to get one for. CloudFront terminates TLS for the
+  browser and talks HTTP to the ALB inside AWS.
+- Serving `/api` from the same origin means **no CORS** — no preflight, and no
+  cross-origin configuration to get wrong.
+
+The API behavior has caching disabled outright. Responses are per-user, and a
+cached `200` served to the wrong bearer token is a data leak rather than a
+stale page.
+
+```bash
+npm run dev:web    # http://localhost:5173, proxying /api to the local API
+```
+
+The Cognito callback list has to contain the client's origin, which does not
+exist until CloudFront deploys. That circularity is a deliberate two-step
+rather than a custom resource:
+
+```bash
+npx cdk deploy ApexWeb                                      # prints the origin
+npx cdk deploy ApexIdentity -c webOrigin=https://xxx.cloudfront.net
+```
+
+### Getting a token
+
+```bash
+TOKEN=$(aws cognito-idp initiate-auth \
+  --client-id "$CLIENT_ID" --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=alice,PASSWORD='…' \
+  --query 'AuthenticationResult.AccessToken' --output text)
+
+curl -s "$API_URL/api/keyboards/apex-pro-gen-3/mappings" \
+  -H "Authorization: Bearer $TOKEN" | jq '.remappedCount'
+```
+
+`CLIENT_ID` and `API_URL` are stack outputs — `npx cdk deploy` prints them, or
+read them back with `aws cloudformation describe-stacks`.
+
+### What running it proved
+
+Three things that local testing could not:
+
+- **Fargate's disk is ephemeral**, so the brief's "persists between runs" is
+  meaningless in a container without somewhere durable to write. SQLite lives
+  on an EFS mount; killing the task and letting ECS replace it leaves the
+  database intact. That was verified by doing it, not by assuming it.
+- **One writer, always.** SQLite permits a single writer, so the service is
+  pinned to one task and deployments stop the old one before starting the
+  new one. It does not scale horizontally, which is the honest limit of
+  answering the brief literally.
+- **No NAT Gateway.** Tasks run in public subnets with public IPs. A private
+  subnet layout is the usual production answer and costs ~$32/month in NAT
+  charges to hide a service that is deliberately internet-facing.
+
 ## Roadmap
 
 1. [x] Shared domain rules and seed generation, with drift tests
 2. [x] Canonical OpenAPI contract, validated against the domain catalog
 3. [x] ASP.NET Core 10 API: EF Core schema + seed migration, SQLite, integration tests
-4. [ ] Conformance suite + build-time OpenAPI diff against the canonical contract
-5. [ ] Cognito JWT validation + local dev issuer, replacing the `X-Dev-User` seam
-6. [ ] React client with Cognito Hosted UI, pointed at the .NET API
-7. [ ] TypeScript serverless API with DynamoDB, passing the same conformance suite
-8. [ ] AWS CDK infrastructure, including the Cognito user pool
-9. [ ] GitHub Actions pipeline deploying to AWS via OIDC
+4. [x] AWS CDK infrastructure: Cognito, ECS Fargate, EFS, ALB
+5. [x] Cognito JWT validation, replacing the `X-Dev-User` seam outside Development
+6. [x] GitHub Actions pipeline deploying to AWS via OIDC
+7. [x] React client on S3 + CloudFront, signing in through the Cognito hosted UI
+8. [ ] Local dev issuer, so the real validation path runs without AWS
+9. [ ] TypeScript serverless API with DynamoDB, passing the same conformance suite
+10. [ ] Shared conformance suite run against both implementations
 
-The client comes before the second API on purpose. Once steps 3 to 5 are
-done the .NET service is feature-complete, and a real client is the fastest
-way to exercise it the way a user would — clicking through a live remap and
-watching per-user isolation hold is a better check on the contract than
-another test asserting the shape I already expect.
+Steps 4 to 6 jumped ahead of the original order. Deploying earlier than
+planned turned out to be worth it: standing the service up surfaced three
+problems that no amount of local testing would have — an OIDC subject claim
+that does not look like the documentation suggests, a `.gitignore` rule that
+silently excluded the CDK entry point, and the fact that Fargate's ephemeral
+disk makes the brief's persistence requirement meaningless without EFS.
 
-It also means the API contract gets validated by a second consumer *before*
-the serverless implementation is written against it, so anything awkward in
-the JSON surfaces while there is still only one backend to change.
+The client still comes before the second API. A real consumer exercising the
+contract is a better check than another test asserting the shape I already
+expect, and anything awkward in the JSON surfaces while there is still only
+one backend to change.

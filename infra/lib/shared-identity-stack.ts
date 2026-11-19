@@ -11,12 +11,39 @@ import type { Construct } from "constructs";
  * same pool rather than standing up a second one. Separate lifecycles belong
  * in separate stacks.
  */
+export interface SharedIdentityStackProps extends StackProps {
+  /**
+   * Origin the deployed client is served from, e.g.
+   * `https://d111111abcdef8.cloudfront.net`.
+   *
+   * There is a circularity here worth naming: the client's origin does not
+   * exist until the web stack deploys, but Cognito must allow-list the
+   * callback before a login can succeed. Rather than hide that behind a
+   * custom resource, it is a deliberate two-step — deploy the web stack, then
+   * redeploy this one with `-c webOrigin=https://...`. Cognito rejects any
+   * redirect_uri not in this list, so the failure if you skip it is loud.
+   */
+  readonly webOrigin?: string;
+}
+
 export class SharedIdentityStack extends Stack {
   readonly userPool: cognito.UserPool;
   readonly apiClient: cognito.UserPoolClient;
 
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props?: SharedIdentityStackProps) {
     super(scope, id, props);
+
+    // Cognito permits plain HTTP only for localhost; everything else must be
+    // HTTPS. That constraint is why the client is fronted by CloudFront
+    // rather than served from an S3 website endpoint.
+    const callbackUrls = [
+      "http://localhost:5173/callback",
+      ...(props?.webOrigin ? [`${props.webOrigin}/callback`] : []),
+    ];
+    const logoutUrls = [
+      "http://localhost:5173",
+      ...(props?.webOrigin ? [props.webOrigin] : []),
+    ];
 
     this.userPool = new cognito.UserPool(this, "UserPool", {
       userPoolName: "apex-key-remapping",
@@ -59,8 +86,8 @@ export class SharedIdentityStack extends Stack {
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-        callbackUrls: ["http://localhost:5173/callback", "http://localhost:3000/callback"],
-        logoutUrls: ["http://localhost:5173", "http://localhost:3000"],
+        callbackUrls,
+        logoutUrls,
       },
 
       accessTokenValidity: Duration.hours(1),

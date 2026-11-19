@@ -37,6 +37,9 @@ export interface DotnetApiStackProps extends StackProps {
  * not scale horizontally, and saying so is better than discovering it.
  */
 export class DotnetApiStack extends Stack {
+  /** Exposed so the web stack can route `/api` to it from CloudFront. */
+  readonly loadBalancer: elbv2.IApplicationLoadBalancer;
+
   constructor(scope: Construct, id: string, props: DotnetApiStackProps) {
     super(scope, id, props);
 
@@ -166,6 +169,7 @@ export class DotnetApiStack extends Stack {
       internetFacing: true,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
     });
+    this.loadBalancer = loadBalancer;
 
     const listener = loadBalancer.addListener("Http", {
       port: 80,

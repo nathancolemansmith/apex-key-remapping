@@ -1,0 +1,130 @@
+# Deploys the React client to S3 + CloudFront when its sources change on main.
+#
+# Separate from the API workflow because the two have different lifecycles: a
+# CSS tweak should not redeploy a Fargate service, and a migration should not
+# invalidate a CDN. They share the same OIDC deploy role.
+#
+# Vite inlines VITE_* variables at build time, so the Cognito configuration is
+# read from CloudFormation outputs *before* the build rather than supplied as
+# repository variables that could drift from the deployed pool.
+name: Deploy web client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "infra/lib/web-stack.ts"
+      - "packages/hid-catalog/**"
+      - "package-lock.json"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run lint -w @apex/web
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-web-${{ github.run_id }}
+
+      # Read the live pool rather than trusting a stored copy. If identity is
+      # ever rebuilt the client picks up the new ids on its next deploy.
+      - name: Read Cognito configuration from the deployed stack
+        id: cognito
+        run: |
+          outputs=$(aws cloudformation describe-stacks --stack-name ApexIdentity \
+            --query 'Stacks[0].Outputs' --output json)
+          get() { echo "$outputs" | jq -r --arg k "$1" '.[] | select(.OutputKey==$k) | .OutputValue'; }
+
+          domain=$(get HostedUiDomain)
+          client=$(get UserPoolClientId)
+
+          if [ -z "$domain" ] || [ -z "$client" ]; then
+            echo "::error::could not read Cognito outputs from ApexIdentity"
+            exit 1
+          fi
+
+          echo "domain=$domain" >> "$GITHUB_OUTPUT"
+          echo "client=$client" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: apps/web
+        env:
+          VITE_COGNITO_DOMAIN: ${{ steps.cognito.outputs.domain }}
+          VITE_COGNITO_CLIENT_ID: ${{ steps.cognito.outputs.client }}
+        run: npm run build
+
+      # Uploads the bundle and invalidates the distribution, so a deploy is
+      # visible immediately rather than when the cache TTL happens to lapse.
+      - name: Deploy
+        working-directory: infra
+        run: npx cdk deploy ApexWeb --require-approval never
+
+      - name: Verify the deployment
+        run: |
+          url=$(aws cloudformation describe-stacks --stack-name ApexWeb \
+            --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
+
+          echo "### Deployed :globe_with_meridians:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Client: $url" >> "$GITHUB_STEP_SUMMARY"
+
+          # The SPA must answer on a route that is not an object in the bucket,
+          # or the Cognito redirect lands on a 404 and login silently breaks.
+          for path in "/" "/callback"; do
+            status=$(curl -s -o /dev/null -w '%{http_code}' "$url$path")
+            [ "$status" = "200" ] || { echo "::error::$path returned $status"; exit 1; }
+          done
+
+          # And the API must still be reachable through the same origin, or
+          # the browser would be making cross-origin calls it is not set up for.
+          status=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/keyboards")
+          [ "$status" = "401" ] || { echo "::error::expected 401 from /api without a token, got $status"; exit 1; }
+
+          echo "client serves, SPA routing works, API reachable and still closed"
+
+      - name: Remind if the callback URL is not allow-listed
+        run: |
+          url=$(aws cloudformation describe-stacks --stack-name ApexWeb \
+            --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
+          client=$(aws cloudformation describe-stacks --stack-name ApexIdentity \
+            --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text)
+          pool=$(aws cloudformation describe-stacks --stack-name ApexIdentity \
+            --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
+
+          callbacks=$(aws cognito-idp describe-user-pool-client \
+            --user-pool-id "$pool" --client-id "$client" \
+            --query 'UserPoolClient.CallbackURLs' --output text)
+
+          case "$callbacks" in
+            *"$url/callback"*) echo "callback is allow-listed" ;;
+            *) echo "::warning::$url/callback is not in the Cognito callback list — login will fail. Redeploy identity with: npx cdk deploy ApexIdentity -c webOrigin=$url" ;;
+          esac

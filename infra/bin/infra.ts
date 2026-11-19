@@ -3,6 +3,7 @@ import { App, Tags } from "aws-cdk-lib";
 import { DotnetApiStack } from "../lib/dotnet-api-stack.js";
 import { GithubDeployStack } from "../lib/github-deploy-stack.js";
 import { SharedIdentityStack } from "../lib/shared-identity-stack.js";
+import { WebStack } from "../lib/web-stack.js";
 
 const app = new App();
 
@@ -29,6 +30,12 @@ const repository =
 const identity = new SharedIdentityStack(app, "ApexIdentity", {
   env,
   description: "Cognito user pool shared by both API implementations and the web client",
+
+  // Supplied on the second pass, once the web stack has a CloudFront domain:
+  //   npx cdk deploy ApexIdentity -c webOrigin=https://xxxx.cloudfront.net
+  ...(app.node.tryGetContext("webOrigin")
+    ? { webOrigin: app.node.tryGetContext("webOrigin") as string }
+    : {}),
 });
 
 const api = new DotnetApiStack(app, "ApexDotnetApi", {
@@ -41,6 +48,14 @@ const api = new DotnetApiStack(app, "ApexDotnetApi", {
 // Explicit, though CDK would infer it from the cross-stack references: the
 // API cannot validate tokens from a pool that does not exist yet.
 api.addStackDependency(identity);
+
+const web = new WebStack(app, "ApexWeb", {
+  env,
+  description: "React client on S3, served with the API through one CloudFront distribution",
+  loadBalancer: api.loadBalancer,
+});
+
+web.addStackDependency(api);
 
 new GithubDeployStack(app, "ApexGithubDeploy", {
   env,

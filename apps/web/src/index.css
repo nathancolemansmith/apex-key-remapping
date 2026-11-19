@@ -1,0 +1,10 @@
+/* A focus ring for the selected key cap. Bootstrap has no "selected" state
+   for buttons that survives the outline variants, so this adds one. */
+.ring {
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.55);
+}
+
+/* The key grid is dense; keep caps from growing to fill their row. */
+.btn[aria-pressed] {
+  flex: 0 0 auto;
+}
