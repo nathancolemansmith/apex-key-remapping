@@ -128,6 +128,23 @@ export class GithubDeployStack extends Stack {
       }),
     );
 
+    // The deploy workflows verify, after deploying, that the Cognito client
+    // still allows every origin the site is served from. That check exists
+    // because CloudFormation sets the callback list to exactly what the
+    // template declares — a template missing an origin does not leave it
+    // alone, it removes it, and login breaks silently.
+    //
+    // Read-only and limited to describing a user pool client. The role has
+    // no power to change one; it deploys by assuming the CDK roles, and that
+    // is still the only way anything here gets modified.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "VerifyCognitoCallbackUrls",
+        actions: ["cognito-idp:DescribeUserPoolClient"],
+        resources: [`arn:aws:cognito-idp:${this.region}:${this.account}:userpool/*`],
+      }),
+    );
+
     new CfnOutput(this, "DeployRoleArn", {
       value: role.roleArn,
       description: "Set as AWS_DEPLOY_ROLE_ARN in the repository's Actions variables",

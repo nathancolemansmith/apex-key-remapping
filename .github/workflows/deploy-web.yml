@@ -138,7 +138,11 @@ jobs:
 
           echo "client serves, SPA routing works, API reachable and still closed"
 
+      # Advisory only — it never fails the job. The client is deployed and
+      # serving by this point; a callback mismatch breaks login, which is
+      # worth shouting about but is fixed in the identity stack, not here.
       - name: Remind if the callback URL is not allow-listed
+        continue-on-error: true
         run: |
           url=$(aws cloudformation describe-stacks --stack-name ApexWeb \
             --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
@@ -147,11 +151,14 @@ jobs:
           pool=$(aws cloudformation describe-stacks --stack-name ApexIdentity \
             --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" --output text)
 
-          callbacks=$(aws cognito-idp describe-user-pool-client \
-            --user-pool-id "$pool" --client-id "$client" \
-            --query 'UserPoolClient.CallbackURLs' --output text)
+          if ! callbacks=$(aws cognito-idp describe-user-pool-client \
+                --user-pool-id "$pool" --client-id "$client" \
+                --query 'UserPoolClient.CallbackURLs' --output text 2>&1); then
+            echo "::warning::Could not read the callback list, so it was not verified: $callbacks"
+            exit 0
+          fi
 
           case "$callbacks" in
             *"$url/callback"*) echo "callback is allow-listed" ;;
-            *) echo "::warning::$url/callback is not in the Cognito callback list — login will fail. Redeploy identity with: npx cdk deploy ApexIdentity -c webOrigin=$url" ;;
+            *) echo "::warning::$url/callback is not in the Cognito callback list — login will fail. Set webOrigin in infra/bin/infra.ts to $url and let the identity pipeline redeploy." ;;
           esac

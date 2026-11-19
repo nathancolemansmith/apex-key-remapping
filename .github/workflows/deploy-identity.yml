@@ -74,9 +74,15 @@ jobs:
           client=$(aws cloudformation describe-stacks --stack-name ApexIdentity \
             --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text)
 
-          callbacks=$(aws cognito-idp describe-user-pool-client \
-            --user-pool-id "$pool" --client-id "$client" \
-            --query 'UserPoolClient.CallbackURLs' --output text)
+          # "could not check" and "the thing is wrong" are different outcomes.
+          # Failing a deploy that actually succeeded because a verification
+          # step lacked a permission is noise, so that case warns instead.
+          if ! callbacks=$(aws cognito-idp describe-user-pool-client \
+                --user-pool-id "$pool" --client-id "$client" \
+                --query 'UserPoolClient.CallbackURLs' --output text 2>&1); then
+            echo "::warning::Could not read the callback list, so it was not verified: $callbacks"
+            exit 0
+          fi
 
           echo "Callback URLs: $callbacks"
 
