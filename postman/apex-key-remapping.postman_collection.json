@@ -50,8 +50,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -96,8 +96,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -154,8 +154,8 @@
                 "value": "application/json"
               },
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -203,8 +203,8 @@
                 "value": "application/json"
               },
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -252,8 +252,8 @@
                 "value": "application/json"
               },
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -301,8 +301,8 @@
                 "value": "application/json"
               },
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -346,8 +346,8 @@
             "method": "DELETE",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -383,8 +383,8 @@
             "method": "DELETE",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -425,8 +425,8 @@
             "method": "DELETE",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -465,8 +465,8 @@
                 "value": "application/json"
               },
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -510,8 +510,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -584,8 +584,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "someone-else"
+                "key": "Authorization",
+                "value": "Bearer {{accessTokenOther}}"
               }
             ],
             "url": {
@@ -600,7 +600,7 @@
                 "mappings"
               ]
             },
-            "description": "Same database, same keyboard, different owner. Identity comes from the request context and no route accepts a user, so there is no way to ask for someone else's layout."
+            "description": "A second real Cognito identity, not a different header value. Same store, same keyboard, different `sub`. Identity comes from the token and no route accepts a user, so there is no way to ask for someone else's layout."
           },
           "event": [
             {
@@ -630,8 +630,8 @@
                 "value": "application/json"
               },
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -675,8 +675,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -721,8 +721,8 @@
                 "value": "application/json"
               },
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -780,8 +780,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -818,8 +818,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -859,8 +859,8 @@
             "method": "DELETE",
             "header": [
               {
-                "key": "X-Dev-User",
-                "value": "{{devUser}}"
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
               }
             ],
             "url": {
@@ -891,6 +891,62 @@
       ]
     }
   ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const region = pm.variables.get(\"cognitoRegion\");",
+          "const clientId = pm.variables.get(\"cognitoClientId\");",
+          "",
+          "// Cognito tokens last an hour; refresh a minute early so one does not",
+          "// expire midway through a collection run.",
+          "const fresh = (key) => {",
+          "    const token = pm.collectionVariables.get(key);",
+          "    const expiry = Number(pm.collectionVariables.get(key + \"ExpiresAt\") || 0);",
+          "    return token && expiry > Date.now() + 60000;",
+          "};",
+          "",
+          "// Callback style, not promises: the sandbox waits for in-flight",
+          "// pm.sendRequest calls before sending the actual request, but a dangling",
+          "// promise it does not know about would race.",
+          "const signIn = (username, password, key) => {",
+          "    pm.sendRequest({",
+          "        url: \"https://cognito-idp.\" + region + \".amazonaws.com/\",",
+          "        method: \"POST\",",
+          "        header: {",
+          "            \"Content-Type\": \"application/x-amz-json-1.1\",",
+          "            \"X-Amz-Target\": \"AWSCognitoIdentityProviderService.InitiateAuth\",",
+          "        },",
+          "        body: { mode: \"raw\", raw: JSON.stringify({",
+          "            AuthFlow: \"USER_PASSWORD_AUTH\",",
+          "            ClientId: clientId,",
+          "            AuthParameters: { USERNAME: username, PASSWORD: password },",
+          "        }) },",
+          "    }, (err, res) => {",
+          "        if (err) { console.error(\"Sign-in request failed for \" + username, err); return; }",
+          "        const body = res.json();",
+          "        if (!body.AuthenticationResult) {",
+          "            console.error(\"Sign-in rejected for \" + username + \": \" + (body.message || res.code));",
+          "            return;",
+          "        }",
+          "        pm.collectionVariables.set(key, body.AuthenticationResult.AccessToken);",
+          "        pm.collectionVariables.set(key + \"ExpiresAt\",",
+          "            String(Date.now() + body.AuthenticationResult.ExpiresIn * 1000));",
+          "    });",
+          "};",
+          "",
+          "if (!fresh(\"accessToken\")) {",
+          "    signIn(pm.variables.get(\"username\"), pm.variables.get(\"password\"), \"accessToken\");",
+          "}",
+          "if (!fresh(\"accessTokenOther\")) {",
+          "    signIn(pm.variables.get(\"usernameOther\"), pm.variables.get(\"password\"), \"accessTokenOther\");",
+          "}"
+        ]
+      }
+    }
+  ],
   "variable": [
     {
       "key": "baseUrl",
@@ -900,11 +956,6 @@
     {
       "key": "keyboard",
       "value": "apex-pro-gen-3",
-      "type": "string"
-    },
-    {
-      "key": "devUser",
-      "value": "alice",
       "type": "string"
     }
   ]

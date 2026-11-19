@@ -1,0 +1,100 @@
+# Deploys the serverless API to Lambda + DynamoDB when its sources change.
+#
+# Separate from the .NET workflow because the two implementations deploy
+# independently — that is the point of having both. They share the OIDC deploy
+# role and the same canonical contract.
+name: Deploy serverless API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api-serverless/**"
+      - "infra/lib/serverless-api-stack.ts"
+      # The handler imports the shared domain directly, so a catalog or rule
+      # change reaches this implementation through a redeploy.
+      - "packages/**"
+      - "package-lock.json"
+      - ".github/workflows/deploy-serverless.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-serverless
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    name: Test and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # @apex/api-serverless imports @apex/hid-catalog, which resolves to its
+      # dist/ output. dist/ is gitignored, so a fresh checkout has the
+      # workspace symlink and nothing behind it.
+      - name: Build the shared domain package
+        run: npm run build -w @apex/hid-catalog
+
+      - name: Typecheck
+        run: npm run lint -w @apex/api-serverless
+
+      # Contract tests: these assert the same status codes, shapes and error
+      # strings the .NET integration tests do, because both implementations
+      # answer one specification.
+      - name: Handler tests
+        run: npm run test -w @apex/api-serverless
+
+      - name: Contract still agrees with the catalog
+        run: npm run contract:validate
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-serverless-${{ github.run_id }}
+
+      - name: Deploy
+        working-directory: infra
+        run: npx cdk deploy ApexServerlessApi --require-approval never
+
+      - name: Smoke test
+        run: |
+          url=$(aws cloudformation describe-stacks --stack-name ApexServerlessApi \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
+
+          echo "### Deployed :zap:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: $url" >> "$GITHUB_STEP_SUMMARY"
+
+          for attempt in $(seq 1 20); do
+            if curl -fsS "$url/health" > /dev/null; then
+              # The authorizer must reject unauthenticated callers before the
+              # Lambda is ever invoked. A 200 here would mean the API is open.
+              status=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/keyboards")
+              if [ "$status" != "401" ]; then
+                echo "::error::expected 401 without a token, got $status"
+                exit 1
+              fi
+              echo "healthy, and unauthenticated requests rejected at the edge"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "::error::service did not become healthy"
+          exit 1

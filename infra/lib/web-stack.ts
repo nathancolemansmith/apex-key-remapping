@@ -74,6 +74,30 @@ export class WebStack extends Stack {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
     };
 
+    // The client is a single-page app: /callback is a route it handles, not an
+    // object in the bucket, so those requests have to reach index.html.
+    //
+    // Done with a function on the S3 behavior rather than the distribution's
+    // `errorResponses`, because those apply to **every** behavior including
+    // the API. Mapping 404 → index.html that way turned the API's "no such
+    // keyboard" 404 into a 200 serving HTML — the contract says problem
+    // details, and the browser got a React app. The conformance suite caught
+    // it by running the same assertions against both backends.
+    const spaRouting = new cloudfront.Function(this, "SpaRouting", {
+      comment: "Rewrite extensionless paths to the SPA entry point",
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+    var request = event.request;
+    // Anything with a file extension is a real asset: index.html, a bundle,
+    // a source map. Everything else is a client-side route.
+    if (request.uri.indexOf('.') === -1) {
+        request.uri = '/index.html';
+    }
+    return request;
+}`),
+    });
+
     this.distribution = new cloudfront.Distribution(this, "Cdn", {
       comment: "Apex key remapping — React client and API",
       defaultRootObject: "index.html",
@@ -83,20 +107,17 @@ export class WebStack extends Stack {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         compress: true,
+        functionAssociations: [
+          { function: spaRouting, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST },
+        ],
       },
 
+      // Declared before the default behavior is consulted, and the SPA
+      // rewrite is deliberately not attached to either.
       additionalBehaviors: {
         "/api/*": apiBehavior,
         "/health": apiBehavior,
       },
-
-      // The client is a single-page app: /callback is a route it handles, not
-      // an object in the bucket. S3 answers 403 for a missing key behind an
-      // access control, so both are mapped back to the app.
-      errorResponses: [
-        { httpStatus: 403, responseHttpStatus: 200, responsePagePath: "/index.html", ttl: Duration.minutes(5) },
-        { httpStatus: 404, responseHttpStatus: 200, responsePagePath: "/index.html", ttl: Duration.minutes(5) },
-      ],
 
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,

@@ -15,6 +15,10 @@ The same API is implemented **twice** against one shared domain contract:
 | [`apps/api-dotnet`](apps/api-dotnet) | ASP.NET Core 10 Minimal API | SQLite via EF Core migrations | ECS Fargate + ALB | JWT bearer middleware |
 | [`apps/api-serverless`](apps/api-serverless) | TypeScript, AWS Lambda | DynamoDB | API Gateway + Lambda | API Gateway JWT authorizer |
 
+Both are deployed, and the same Postman collection passes **38 assertions
+against each**. Identical requests return byte-identical responses — verified
+by diffing them, not asserted.
+
 A React client in [`apps/web`](apps/web) exercises either backend so the two can
 be compared side by side against identical requests.
 
@@ -24,7 +28,8 @@ be compared side by side against identical requests.
 > survives container replacement. The client is served from S3 through
 > CloudFront, which also fronts the API so both share one origin. Both
 > redeploy from GitHub Actions on push to `main`. The serverless
-> implementation is still to come — see [Roadmap](#roadmap).
+> implementation is deployed too, and both answer the same contract —
+> see [Roadmap](#roadmap).
 
 ---
 
@@ -542,8 +547,8 @@ Three things that local testing could not:
 6. [x] GitHub Actions pipeline deploying to AWS via OIDC
 7. [x] React client on S3 + CloudFront, signing in through the Cognito hosted UI
 8. [ ] Local dev issuer, so the real validation path runs without AWS
-9. [ ] TypeScript serverless API with DynamoDB, passing the same conformance suite
-10. [ ] Shared conformance suite run against both implementations
+9. [x] TypeScript serverless API with DynamoDB, passing the same conformance suite
+10. [x] Shared conformance suite run against both implementations
 
 Steps 4 to 6 jumped ahead of the original order. Deploying earlier than
 planned turned out to be worth it: standing the service up surfaced three

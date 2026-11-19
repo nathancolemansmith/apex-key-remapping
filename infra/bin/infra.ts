@@ -2,6 +2,7 @@
 import { App, Tags } from "aws-cdk-lib";
 import { DotnetApiStack } from "../lib/dotnet-api-stack.js";
 import { GithubDeployStack } from "../lib/github-deploy-stack.js";
+import { ServerlessApiStack } from "../lib/serverless-api-stack.js";
 import { SharedIdentityStack } from "../lib/shared-identity-stack.js";
 import { WebStack } from "../lib/web-stack.js";
 
@@ -56,6 +57,15 @@ const api = new DotnetApiStack(app, "ApexDotnetApi", {
 // Explicit, though CDK would infer it from the cross-stack references: the
 // API cannot validate tokens from a pool that does not exist yet.
 api.addStackDependency(identity);
+
+const serverless = new ServerlessApiStack(app, "ApexServerlessApi", {
+  env,
+  description: "The same API on Lambda + DynamoDB, with auth at the API Gateway edge",
+  userPool: identity.userPool,
+  userPoolClient: identity.apiClient,
+});
+
+serverless.addStackDependency(identity);
 
 const web = new WebStack(app, "ApexWeb", {
   env,

@@ -1,0 +1,23 @@
+{
+  "name": "@apex/api-serverless",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The key remapping API as AWS Lambda handlers over DynamoDB.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@apex/hid-catalog": "*",
+    "@aws-sdk/client-dynamodb": "^3.1172.0",
+    "@aws-sdk/lib-dynamodb": "^3.1172.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -64,15 +64,21 @@ const jsonBody = (value) => ({
   options: { raw: { language: "json" } },
 });
 
-const request = ({ name, method, path, body, description, tests = [], auth = true }) => ({
+/**
+ * Both deployments authenticate with real Cognito access tokens — the .NET
+ * API validates them in middleware, the serverless one at the API Gateway
+ * edge. `{{accessToken}}` is minted by the collection-level pre-request
+ * script below, so the collection needs no manual setup beyond credentials.
+ */
+const request = ({ name, method, path, body, description, tests = [], auth = true, as }) => ({
   name,
   request: {
     method,
     header: [
       ...(body ? [{ key: "Content-Type", value: "application/json" }] : []),
-      // Until Cognito lands this is how the caller is identified. It becomes
-      // an Authorization header in roadmap step 5 and nothing else changes.
-      ...(auth ? [{ key: "X-Dev-User", value: "{{devUser}}" }] : []),
+      ...(auth
+        ? [{ key: "Authorization", value: `Bearer {{${as === "other" ? "accessTokenOther" : "accessToken"}}}` }]
+        : []),
     ],
     url: url(path),
     ...(body ? { body: jsonBody(body) } : {}),
@@ -80,6 +86,64 @@ const request = ({ name, method, path, body, description, tests = [], auth = tru
   },
   event: tests.length ? [script(tests)] : [],
 });
+
+/**
+ * Runs before every request. Exchanges a username and password for an access
+ * token via Cognito's InitiateAuth, which needs no AWS signature, and caches
+ * it until it expires.
+ *
+ * Two users, because proving per-user isolation needs two identities and the
+ * whole point of the scenario is that the same request returns different
+ * answers depending on who asks.
+ */
+const AUTH_PREREQUEST = [
+  `const region = pm.variables.get("cognitoRegion");`,
+  `const clientId = pm.variables.get("cognitoClientId");`,
+  ``,
+  `// Cognito tokens last an hour; refresh a minute early so one does not`,
+  `// expire midway through a collection run.`,
+  `const fresh = (key) => {`,
+  `    const token = pm.collectionVariables.get(key);`,
+  `    const expiry = Number(pm.collectionVariables.get(key + "ExpiresAt") || 0);`,
+  `    return token && expiry > Date.now() + 60000;`,
+  `};`,
+  ``,
+  `// Callback style, not promises: the sandbox waits for in-flight`,
+  `// pm.sendRequest calls before sending the actual request, but a dangling`,
+  `// promise it does not know about would race.`,
+  `const signIn = (username, password, key) => {`,
+  `    pm.sendRequest({`,
+  `        url: "https://cognito-idp." + region + ".amazonaws.com/",`,
+  `        method: "POST",`,
+  `        header: {`,
+  `            "Content-Type": "application/x-amz-json-1.1",`,
+  `            "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth",`,
+  `        },`,
+  `        body: { mode: "raw", raw: JSON.stringify({`,
+  `            AuthFlow: "USER_PASSWORD_AUTH",`,
+  `            ClientId: clientId,`,
+  `            AuthParameters: { USERNAME: username, PASSWORD: password },`,
+  `        }) },`,
+  `    }, (err, res) => {`,
+  `        if (err) { console.error("Sign-in request failed for " + username, err); return; }`,
+  `        const body = res.json();`,
+  `        if (!body.AuthenticationResult) {`,
+  `            console.error("Sign-in rejected for " + username + ": " + (body.message || res.code));`,
+  `            return;`,
+  `        }`,
+  `        pm.collectionVariables.set(key, body.AuthenticationResult.AccessToken);`,
+  `        pm.collectionVariables.set(key + "ExpiresAt",`,
+  `            String(Date.now() + body.AuthenticationResult.ExpiresIn * 1000));`,
+  `    });`,
+  `};`,
+  ``,
+  `if (!fresh("accessToken")) {`,
+  `    signIn(pm.variables.get("username"), pm.variables.get("password"), "accessToken");`,
+  `}`,
+  `if (!fresh("accessTokenOther")) {`,
+  `    signIn(pm.variables.get("usernameOther"), pm.variables.get("password"), "accessTokenOther");`,
+  `}`,
+];
 
 // ── Assertions ──────────────────────────────────────────────────────────────
 
@@ -291,27 +355,24 @@ const scenario = {
         `});`,
       ],
     }),
-    {
+    request({
       name: "4. A different user sees their own layout",
-      request: {
-        method: "GET",
-        header: [{ key: "X-Dev-User", value: "someone-else" }],
-        url: url(MAPPINGS),
-        description:
-          "Same database, same keyboard, different owner. Identity comes from the " +
-          "request context and no route accepts a user, so there is no way to ask " +
-          "for someone else's layout.",
-      },
-      event: [
-        script([
-          ...expectStatus(200),
-          ...remappedCountIs(0, "another user has nothing remapped"),
-          `pm.test("but still gets the whole keyboard", () => {`,
-          `    pm.expect(pm.response.json().totalKeys).to.eql(${totalKeys});`,
-          `});`,
-        ]),
+      method: "GET",
+      path: MAPPINGS,
+      as: "other",
+      description:
+        "A second real Cognito identity, not a different header value. Same " +
+        "store, same keyboard, different `sub`. Identity comes from the token " +
+        "and no route accepts a user, so there is no way to ask for someone " +
+        "else's layout.",
+      tests: [
+        ...expectStatus(200),
+        ...remappedCountIs(0, "another user has nothing remapped"),
+        `pm.test("but still gets the whole keyboard", () => {`,
+        `    pm.expect(pm.response.json().totalKeys).to.eql(${totalKeys});`,
+        `});`,
       ],
-    },
+    }),
     request({
       name: "5. Clearing one binding by mapping it to itself",
       method: "POST",
@@ -400,35 +461,65 @@ const collection = {
       "or headlessly with `npm run postman:test`.",
   },
   item: [...reference, scenario],
+
+  // Runs before every request, minting tokens once and reusing them.
+  event: [{ listen: "prerequest", script: { type: "text/javascript", exec: AUTH_PREREQUEST } }],
+
   variable: [
     { key: "baseUrl", value: "http://localhost:5080", type: "string" },
     { key: "keyboard", value: keyboard.slug, type: "string" },
-    { key: "devUser", value: "alice", type: "string" },
   ],
 };
 
-const environment = {
-  name: "Apex — local .NET",
+/**
+ * One environment per deployment. The same collection runs against both,
+ * which is the whole point — if the two implementations disagree, the same
+ * 38 assertions cannot pass twice.
+ */
+const environmentFor = (name, baseUrl) => ({
+  name,
   values: [
-    { key: "baseUrl", value: "http://localhost:5080", type: "default", enabled: true },
+    { key: "baseUrl", value: baseUrl, type: "default", enabled: true },
     { key: "keyboard", value: keyboard.slug, type: "default", enabled: true },
-    { key: "devUser", value: "alice", type: "default", enabled: true },
+    { key: "cognitoRegion", value: "us-east-1", type: "default", enabled: true },
+    { key: "cognitoClientId", value: "16k15j46dasjhd8okl0vr7kuid", type: "default", enabled: true },
+    { key: "username", value: "alice", type: "default", enabled: true },
+    { key: "usernameOther", value: "bob", type: "default", enabled: true },
+    // Left blank deliberately. Filling it in is a local step, not something
+    // that belongs in version control.
+    { key: "password", value: "", type: "secret", enabled: true },
   ],
   _postman_variable_scope: "environment",
-};
+});
 
 mkdirSync(outDir, { recursive: true });
 
 const collectionPath = join(outDir, "apex-key-remapping.postman_collection.json");
-const environmentPath = join(outDir, "local.postman_environment.json");
-
 writeFileSync(collectionPath, `${JSON.stringify(collection, null, 2)}\n`);
-writeFileSync(environmentPath, `${JSON.stringify(environment, null, 2)}\n`);
+
+// Deployed URLs are stack outputs, not secrets, and committing them is what
+// makes `npm run postman:test` work without a setup ritual. Only the password
+// is left blank. If a stack is destroyed and recreated these change — read
+// them back with `aws cloudformation describe-stacks`.
+const environments = [
+  ["local.postman_environment.json", "Apex — local .NET", "http://localhost:5080"],
+  ["dotnet.postman_environment.json", "Apex — deployed .NET", "https://d3isop0e6bhby8.cloudfront.net"],
+  [
+    "serverless.postman_environment.json",
+    "Apex — deployed serverless",
+    "https://qb3okpgoo6.execute-api.us-east-1.amazonaws.com",
+  ],
+];
+
+for (const [file, name, baseUrl] of environments) {
+  writeFileSync(join(outDir, file), `${JSON.stringify(environmentFor(name, baseUrl), null, 2)}\n`);
+}
 
 const countRequests = (items) =>
   items.reduce((total, item) => total + (item.item ? countRequests(item.item) : 1), 0);
 
-console.log(`Wrote:\n  ${collectionPath}\n  ${environmentPath}`);
+console.log(`Wrote:\n  ${collectionPath}`);
+for (const [file] of environments) console.log(`  ${join(outDir, file)}`);
 console.table({
   folders: collection.item.length,
   requests: countRequests(collection.item),
