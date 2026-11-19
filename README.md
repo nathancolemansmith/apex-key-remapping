@@ -155,6 +155,12 @@ In the serverless implementation the equivalent isolation is physical: the
 DynamoDB partition key is derived from the `sub`, so one user's query cannot
 read another's items even if application code asked it to.
 
+[DATA-MODEL.md](DATA-MODEL.md) compares the two models side by side — an
+entity diagram of the relational schema, the DynamoDB table laid out by
+partition, and what each design buys and costs.
+[COST-AND-TRADEOFFS.md](COST-AND-TRADEOFFS.md) does the same for money: real
+AWS list prices, measured Lambda durations, and where the two curves cross.
+
 ### Adding new keys and keyboards
 
 Because the catalog is data, extending it is a migration rather than a code

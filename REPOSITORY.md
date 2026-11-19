@@ -75,6 +75,8 @@ apex-key-remapping/
 ├── HidKeyCodes.md                Reference key table — a build input, not just documentation
 ├── README.md                     Design: data model, API contract, auth, tradeoffs
 ├── REPOSITORY.md                 This file
+├── DATA-MODEL.md                 Relational vs key-value, compared
+├── COST-AND-TRADEOFFS.md         Cost at scale, and when each wins
 ├── package.json                  npm workspaces root; cross-cutting scripts
 ├── package-lock.json             Single lockfile for every JS workspace
 ├── .gitignore
