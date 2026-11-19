@@ -43,7 +43,16 @@ export class ApiError extends Error {
 }
 
 export class ApiClient {
-  constructor(private readonly accessToken: string) {}
+  /**
+   * @param baseUrl Empty for the .NET API, which CloudFront serves from this
+   * same origin. An absolute URL for the serverless one, which lives on API
+   * Gateway — that request *is* cross-origin, which is why that stack
+   * configures CORS and the .NET one has no need to.
+   */
+  constructor(
+    private readonly accessToken: string,
+    private readonly baseUrl: string = "",
+  ) {}
 
   listKeyboards(): Promise<{ keyboards: KeyboardSummary[] }> {
     return this.send("/api/keyboards");
@@ -82,7 +91,7 @@ export class ApiClient {
   }
 
   private async send<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(path, {
+    const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,

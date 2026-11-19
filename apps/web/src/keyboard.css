@@ -1,0 +1,330 @@
+/*
+ * A SteelSeries Apex Pro, in CSS.
+ *
+ * The depth is faked rather than modelled: one `perspective` on the stage, a
+ * single `rotateX` on the chassis, and every keycap drawn flat inside it.
+ * Real 3D would mean a renderer, a scene graph and a canvas that screen
+ * readers cannot see. This stays as DOM — each cap is a <button>, so it keeps
+ * focus, keyboard navigation and labels for free, which matters more here
+ * than genuine geometry.
+ *
+ * The look comes from three details: a brushed dark-aluminium top plate,
+ * floating caps with a lit top bevel and a hard bottom edge, and per-key RGB
+ * that only lights up where something is actually remapped.
+ */
+
+:root {
+  --plate: #16181b;
+  --plate-edge: #0a0b0d;
+  --cap-top: #32363d;
+  --cap-bottom: #1c1f24;
+  --cap-text: #e8eaed;
+  --rgb-remapped: #e77a4b; /* SteelSeries orange */
+  --rgb-pending: #ffc107;
+  --rgb-selected: #4dabf7;
+}
+
+/* ── Stage and chassis ───────────────────────────────────────────────────── */
+
+/*
+ * The board sizes itself to whatever column it is given, rather than stepping
+ * at viewport breakpoints. Breakpoints size against the window, but the
+ * keyboard lives in a column whose width also depends on the sidebar — so the
+ * two disagree at most sizes and the board either overflows or leaves a gulf
+ * of empty plate.
+ *
+ * With a container query, one unit is simply a fraction of the available
+ * width and the geometry follows. The clamp keeps caps legible on a phone
+ * (where the stage scrolls instead) and stops them ballooning on a very wide
+ * screen.
+ */
+/*
+ * Scrolling and perspective are deliberately on different elements.
+ *
+ * When one element is both a scroll container and a perspective container,
+ * browsers hit-test its 3D-transformed descendants against coordinates that
+ * drift from where they are painted — and the drift grows with distance from
+ * `perspective-origin`. With the origin at the top, keys in the upper rows
+ * still took clicks while everything from the Caps Lock row down flickered on
+ * hover and swallowed presses entirely. Splitting the two responsibilities
+ * removes the condition.
+ */
+.kb-viewport {
+  container-type: inline-size;
+
+  /* `overflow-y: visible` would compute to `auto` anyway once the other axis
+     is `auto`, so it is stated outright. The stage's padding leaves room for
+     the tilt, which keeps that axis from ever actually needing to scroll. */
+  overflow-x: auto;
+  overflow-y: hidden;
+
+  /* Board is 23.25u wide. Adding the inter-cap gaps (0.09u each) and the
+     chassis padding (0.38u a side) gives ~26.1u of total width to divide. */
+  --gap: calc(var(--cap) * 0.09);
+  --cap: clamp(1.05rem, 3.83cqw, 3.4rem);
+}
+
+.kb-stage {
+  perspective: 1800px;
+  perspective-origin: 50% 0%;
+  padding: 2.5rem 0 1rem;
+}
+
+.kb-chassis {
+  position: relative;
+  margin: 0 auto;
+
+  /* Not border-box. Bootstrap sets that globally, which made the declared
+     width include the padding — so the bed overflowed the plate by exactly
+     the padding and the numpad hung off the right edge. */
+  box-sizing: content-box;
+
+  padding: calc(var(--cap) * 0.42) calc(var(--cap) * 0.38);
+  border-radius: 0.7rem;
+
+  /* Brushed metal: a base gradient with fine vertical striping over it. */
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.015) 0 1px,
+      transparent 1px 3px
+    ),
+    linear-gradient(170deg, #26292e 0%, var(--plate) 55%, var(--plate-edge) 100%);
+
+  /* The lip, the body shadow, and a faint RGB spill onto the desk. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.7),
+    0 26px 44px rgba(0, 0, 0, 0.55),
+    0 2px 0 #06070a;
+
+  transform: rotateX(16deg);
+
+  /*
+   * Deliberately NOT `transform-style: preserve-3d`.
+   *
+   * No cap is translated in Z — the depth is painted, not modelled — so a 3D
+   * rendering context buys nothing. What it costs is hit testing: inside one,
+   * the position a browser paints a child at and the position it tests clicks
+   * against can diverge, and the divergence grows toward the extremes of the
+   * rotation. The bottom row is furthest from `perspective-origin`, which is
+   * why Space flickered on hover and would not take a click, while keys near
+   * the top behaved. Flattening makes the board a single projected plane,
+   * which hit-tests where it looks.
+   */
+  transform-style: flat;
+  transition: transform 220ms ease;
+}
+
+/* Flattens the board for close work; the tilt is nice to look at and gets in
+   the way when you are actually assigning keys. */
+.kb-chassis[data-flat="true"] {
+  transform: rotateX(0deg);
+}
+
+.kb-brand {
+  position: absolute;
+  top: calc(var(--cap) * 0.12);
+  right: calc(var(--cap) * 0.45);
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}
+
+.kb-bed {
+  position: relative;
+}
+
+/* ── Keycaps ─────────────────────────────────────────────────────────────── */
+
+.kb-cap {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.05rem;
+
+  padding: 0.3rem 0.38rem;
+  border: 0;
+  border-radius: 0.3rem;
+  overflow: hidden;
+
+  font-family: inherit;
+  font-size: calc(var(--cap) * 0.26);
+  line-height: 1.05;
+  font-weight: 500;
+  color: var(--cap-text);
+  text-align: left;
+
+  background-image: linear-gradient(180deg, var(--cap-top) 0%, var(--cap-bottom) 100%);
+
+  /* Lit top bevel, dark sides, and the shadow the cap casts into the plate. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.17),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.55),
+    0 2px 0 #0b0c0f,
+    0 4px 7px rgba(0, 0, 0, 0.5);
+
+  cursor: pointer;
+  transition:
+    transform 90ms ease,
+    box-shadow 90ms ease,
+    filter 90ms ease,
+    background-image 160ms ease;
+}
+
+/* The legend spans are the actual hover target under the pointer; without
+   this they report the default cursor and it alternates as you move. */
+.kb-cap > * {
+  pointer-events: none;
+}
+
+/*
+ * Hover brightens rather than lifts.
+ *
+ * A `translateY` here moved the cap out from under the pointer, which
+ * un-hovered it, which moved it back — a flicker loop that showed up as the
+ * cursor oscillating between pointer and arrow, worst on wide keys like
+ * Space where more of the edge sits near where you aim. Lighting conveys the
+ * same affordance without touching the hit area.
+ */
+.kb-cap:hover:not(:disabled) {
+  filter: brightness(1.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.55),
+    0 2px 0 #0b0c0f,
+    0 6px 11px rgba(0, 0, 0, 0.55);
+}
+
+/* Pressing is a deliberate act with the button already held, so moving the
+   cap here cannot cause the same loop. */
+.kb-cap:active:not(:disabled) {
+  transform: translateY(1.5px);
+  filter: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 2px 5px rgba(0, 0, 0, 0.6),
+    0 0 0 #0b0c0f;
+}
+
+.kb-cap:focus-visible {
+  outline: 2px solid var(--rgb-selected);
+  outline-offset: 2px;
+}
+
+.kb-legend {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kb-sublegend {
+  font-size: 0.78em;
+  opacity: 0.45;
+}
+
+/* What the key currently produces, when that is not itself. */
+.kb-target {
+  margin-top: auto;
+  align-self: flex-end;
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #ffd9c4;
+  text-shadow: 0 0 6px rgba(231, 122, 75, 0.9);
+  white-space: nowrap;
+}
+
+/* ── Per-key RGB ─────────────────────────────────────────────────────────── */
+
+/* The glow is a pseudo-element so it can bleed past the cap's rounded edge
+   without the overflow clip swallowing it. */
+.kb-cap[data-state]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.kb-cap[data-state="remapped"] {
+  background-image: linear-gradient(180deg, #4a3328 0%, #2a1d16 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 190, 150, 0.3),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.55),
+    0 2px 0 #0b0c0f,
+    0 4px 7px rgba(0, 0, 0, 0.5),
+    0 0 14px rgba(231, 122, 75, 0.55);
+}
+
+.kb-cap[data-state="pending"] {
+  background-image: linear-gradient(180deg, #4c4122 0%, #2b2512 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 230, 150, 0.32),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.55),
+    0 2px 0 #0b0c0f,
+    0 4px 7px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(255, 193, 7, 0.6);
+}
+
+.kb-cap[data-state="pending"] .kb-target {
+  color: #ffe9a8;
+  text-shadow: 0 0 6px rgba(255, 193, 7, 0.9);
+}
+
+.kb-cap[data-selected="true"] {
+  background-image: linear-gradient(180deg, #1f3a52 0%, #11212f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(170, 215, 255, 0.4),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.55),
+    0 2px 0 #0b0c0f,
+    0 4px 7px rgba(0, 0, 0, 0.5),
+    0 0 0 2px var(--rgb-selected),
+    0 0 20px rgba(77, 171, 247, 0.75);
+  z-index: 2;
+}
+
+/* ── Caps that exist on the board but not in the catalog ─────────────────── */
+
+.kb-cap:disabled {
+  background-image: linear-gradient(180deg, #212429 0%, #15171a 100%);
+  color: rgba(232, 234, 237, 0.26);
+  cursor: default;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.5),
+    0 2px 0 #0b0c0f,
+    0 3px 5px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Legend ──────────────────────────────────────────────────────────────── */
+
+.kb-key-swatch {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 0.2rem;
+  vertical-align: -0.1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-chassis,
+  .kb-cap {
+    transition: none;
+  }
+  .kb-cap:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Container queries are widely supported, but if they are not the board would
+   collapse to the clamp floor. This keeps it usable in that case. */
+@supports not (container-type: inline-size) {
+  .kb-viewport {
+    --cap: 2.4rem;
+  }
+}

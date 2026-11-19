@@ -33,3 +33,48 @@ export const cognito: AuthConfig = {
 
 /** The only keyboard the catalog currently describes. */
 export const DEFAULT_KEYBOARD = "apex-pro-gen-3";
+
+export interface Backend {
+  readonly id: "dotnet" | "serverless";
+  readonly label: string;
+  readonly detail: string;
+  /** Empty means same-origin. */
+  readonly baseUrl: string;
+}
+
+/**
+ * The two implementations, switchable at runtime.
+ *
+ * This is the repository's whole argument made clickable: the same requests,
+ * the same screen, two completely different backends. If they ever disagree
+ * it shows up here immediately rather than in a test nobody ran.
+ *
+ * The .NET API is same-origin because CloudFront fronts both it and this app.
+ * The serverless one is a separate API Gateway domain, so those calls really
+ * are cross-origin — which is why only that stack configures CORS.
+ */
+export const BACKENDS: readonly Backend[] = [
+  {
+    id: "dotnet",
+    label: ".NET",
+    detail: "ASP.NET Core · SQLite on EFS · ECS Fargate",
+    baseUrl: "",
+  },
+  {
+    id: "serverless",
+    label: "Serverless",
+    detail: "TypeScript · DynamoDB · Lambda",
+    baseUrl: import.meta.env.VITE_SERVERLESS_API_URL ?? "",
+  },
+];
+
+const STORAGE_KEY = "apex.backend";
+
+export function loadBackend(): Backend {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  return BACKENDS.find((backend) => backend.id === saved) ?? BACKENDS[0]!;
+}
+
+export function rememberBackend(backend: Backend): void {
+  localStorage.setItem(STORAGE_KEY, backend.id);
+}

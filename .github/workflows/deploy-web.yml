@@ -57,6 +57,11 @@ jobs:
       - name: Typecheck
         run: npm run lint -w @apex/web
 
+      # Catches a catalog key that has no place on the rendered keyboard —
+      # it would still be remappable by the contract but invisible in the UI.
+      - name: Layout tests
+        run: npm run test -w @apex/web
+
       - name: Assume the deploy role
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -84,11 +89,25 @@ jobs:
           echo "domain=$domain" >> "$GITHUB_OUTPUT"
           echo "client=$client" >> "$GITHUB_OUTPUT"
 
+      # The backend toggle needs the serverless origin. Read rather than
+      # hardcoded, and tolerated when absent: without it the toggle shows
+      # serverless as unavailable instead of the build failing.
+      - name: Read the serverless API URL
+        id: serverless
+        run: |
+          url=$(aws cloudformation describe-stacks --stack-name ApexServerlessApi \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+            --output text 2>/dev/null || true)
+          [ "$url" = "None" ] && url=""
+          [ -z "$url" ] && echo "::warning::ApexServerlessApi not deployed; the backend toggle will be disabled"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
       - name: Build
         working-directory: apps/web
         env:
           VITE_COGNITO_DOMAIN: ${{ steps.cognito.outputs.domain }}
           VITE_COGNITO_CLIENT_ID: ${{ steps.cognito.outputs.client }}
+          VITE_SERVERLESS_API_URL: ${{ steps.serverless.outputs.url }}
         run: npm run build
 
       # Uploads the bundle and invalidates the distribution, so a deploy is
